@@ -75,10 +75,11 @@ BSEG
 ;---------------------------------;
 DSEG at 0x30
 
-TIME_SOAK: ds 2
-TIME_REFLOW: ds 2
-TEMP_SOAK: ds 2
-TEMP_REFLOW: ds 2
+TIME_SOAK: ds 1
+TIME_REFLOW: ds 1
+TEMP_SOAK: ds 1\
+TEMP_REFLOW: ds 1
+
 TEMP_OVEN: ds 2
 TEMP_REF: ds 2
 pwm: ds 1

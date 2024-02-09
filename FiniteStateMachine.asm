@@ -78,12 +78,12 @@ PB4: dbit 1		;Decrease
 ;---------------------------------;
 DSEG at 0x30
 
-TIME_SOAK: ds 2
-TIME_REFLOW: ds 2
-TEMP_SOAK: ds 2
-TEMP_REFLOW: ds 2
-TEMP_OVEN: ds 2
-TEMP_REF: ds 2
+TIME_SOAK: ds 1
+TIME_REFLOW: ds 1
+TEMP_SOAK: ds 1
+TEMP_REFLOW: ds 1
+TEMP_OVEN: ds 1
+TEMP_REF: ds 1
 
 ; FSM
 pwm: ds 1  
@@ -97,6 +97,7 @@ FSM1:
 	mov a, FSM1_state
 FSM1_state0:
 	cjne a, #0, FSM1_state1
+		
 	mov pwm, #0
 	jb PB6, FSM1_state0_done
 	jnb PB6, $ ; Wait for key release
@@ -115,6 +116,7 @@ FSM1_state1:
 	mov FSM1_state,#0
 	ljmp FSM1
 next_1:
+
 	mov pwm, #100
 	;mov sec, #0
 	cjne sec, #60, check_abort
@@ -134,7 +136,8 @@ check_abort:
 	jc ABORTION
 	ljmp Continue_state1
 ABORTION:
-	ljmp end_of_FSM
+	mov FSM1_state,#0
+	ljmp FSM1
 
 FSM1_state2:
 	cjne a, #2, FSM1_state3
@@ -158,6 +161,7 @@ FSM1_state2_done:
 
 FSM1_state3:
 	cjne a, #3, FSM1_state4
+
 	jnb PB1,next_3
 	Wait_Milli_Seconds(#50)
 	jnb PB1,next_3
@@ -178,6 +182,7 @@ FSM1_state3_done:
 
 FSM1_state4:
 	cjne a, #4,FSM1_state5
+
 	jnb PB1,next_4
 	Wait_Milli_Seconds(#50)
 	jnb PB1,next_4
@@ -197,6 +202,7 @@ FSM1_state4_done:
 
 FSM1_state5:
 	cjne a, #5,FSM1_state0
+
 	mov pwm,#0
 	mov a,#60
 	clr c
