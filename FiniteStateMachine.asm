@@ -119,6 +119,7 @@ Continue_state1:
 	mov sec, #0
 FSM1_state1_done:
 	ljmp FSM1
+	
 check_abort:
 	clr c
 	subb temp, #50
@@ -137,6 +138,7 @@ FSM1_state2:
     mov FSM1_state, #3
 FSM1_state2_done:
     ljmp FSM1
+
 FSM1_state3:
 	cjne a, #3, FSM1_state4
 	mov pwm, #100
@@ -161,6 +163,7 @@ FSM1_state4:
 	mov sec,#0
 FSM1_state4_done:
 	ljmp FSM1
+
 FSM1_state5:
 	cjne a, #5,FSM1_state0
 	mov pwm,#0
