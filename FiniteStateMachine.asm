@@ -85,6 +85,7 @@ TEMP_REFLOW: ds 2
 TEMP_OVEN: ds 2
 TEMP_REF: ds 2
 
+; FSM
 pwm: ds 1  
 state: ds 1
 
@@ -143,10 +144,30 @@ FSM1_state3:
 	clr c
 	subb a,temp
 	jnc FSM1_state3_done
-	mov,FSM1_state,#3
+	mov FSM1_state,#4
+	mov sec,#0
 	
 FSM1_state3_done:
 	ljmp FSM1
 
 FSM1_state4:
-	
+	cjne a, #4,FSM1_state5
+	mov pwm,#20
+	mov a,#45
+	clr c
+	subb a,sec	
+	jnc FSM1_state4_done
+	mov FSM1_state,#5
+	mov sec,#0
+FSM1_state4_done:
+	ljmp FSM1
+FSM1_state5:
+	cjne a, #5,FSM1_state0
+	mov pwm,#0
+	mov a,#60
+	clr c
+	subb a,temp
+	jc FSM1_state5_done
+	mov FSM1_state,#0
+FSM1_state5_done:
+	ljmp FSM1
