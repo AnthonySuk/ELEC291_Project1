@@ -107,6 +107,14 @@ FSM1_state0_done:
     ljmp FSM1
 FSM1_state1:
 	cjne a, #1, FSM1_state2
+
+	jnb PB1,next_1
+	Wait_Milli_Seconds(#50)
+	jnb PB1,next_1
+	jb PB1,$
+	mov FSM1_state,#0
+	ljmp FSM1
+next_1:
 	mov pwm, #100
 	;mov sec, #0
 	cjne sec, #60, check_abort
@@ -130,6 +138,15 @@ ABORTION:
 
 FSM1_state2:
 	cjne a, #2, FSM1_state3
+
+	jnb PB1,next_2
+	Wait_Milli_Seconds(#50)
+	jnb PB1,next_2
+	jb PB1,$
+	mov FSM1_state,#0
+	ljmp FSM1
+next_2:
+
     mov pwm, #20
     mov a, #60
     clr c
@@ -141,6 +158,13 @@ FSM1_state2_done:
 
 FSM1_state3:
 	cjne a, #3, FSM1_state4
+	jnb PB1,next_3
+	Wait_Milli_Seconds(#50)
+	jnb PB1,next_3
+	jb PB1,$
+	mov FSM1_state,#0
+	ljmp FSM1
+next_3:
 	mov pwm, #100
 	mov a,#220
 	clr c
@@ -154,6 +178,13 @@ FSM1_state3_done:
 
 FSM1_state4:
 	cjne a, #4,FSM1_state5
+	jnb PB1,next_4
+	Wait_Milli_Seconds(#50)
+	jnb PB1,next_4
+	jb PB1,$
+	mov FSM1_state,#0
+	ljmp FSM1
+next_4:
 	mov pwm,#20
 	mov a,#45
 	clr c
