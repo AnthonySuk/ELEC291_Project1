@@ -34,12 +34,13 @@ ORG 0x0000
 ;      String Declarations		  ;
 ;---------------------------------;
 ;              1234567890123456    <- This helps determine the location of the counter
-;Line1:     db 'LCD PUSH BUTTONS', 0
+;Line1:    db 'LCD PUSH BUTTONS', 0
 Line1:     db 'To= xxC  Tj=xxC'  ,0
 Line2:     db 'Sxxx,xx  Rxxx,xx' ,0
 Blank_3:   db '   '				 ,0
 Blank_2:   db '  '				 ,0
-
+S: 		   db 'S'				 ,0
+R:		   db 'R'				 ,0
 ;---------------------------------;
 ;        Pin Connections   		  ;
 ;---------------------------------;
@@ -63,12 +64,18 @@ BUTTON_DECREASE equ P0.3
 $NOLIST
 $include(LCD_4bit.inc) ; A library of LCD related functions and utility macros
 $LIST
-
 ;---------------------------------;
 ;            Bit Segment		  ;
 ;---------------------------------;
 BSEG
 
+PB_START   : dbit 1
+PB_STOP    : dbit 1
+PB_SELECT  : dbit 1
+PB_INCREASE: dbit 1
+PB_DECREASE: dbit 1
+; Required for math
+mf: dbit 1
 
 ;---------------------------------;
 ;          Data Segment			  ;
@@ -77,21 +84,15 @@ DSEG at 0x30
 
 TIME_SOAK: ds 1
 TIME_REFLOW: ds 1
-TEMP_SOAK: ds 1\
+TEMP_SOAK: ds 1
 TEMP_REFLOW: ds 1
-
-TEMP_OVEN: ds 2
-TEMP_REF: ds 2
+TEMP_OVEN: ds 1
+TEMP_REF: ds 1
 pwm: ds 1
 state: ds 1
 ; Counter
 COUNTER_BUTTON_SELECT: ds 1
-; 
-x:   ds 4
-y:   ds 4
-bcd: ds 5
-VLED_ADC: ds 2
-count: ds 1
+
 
 ;---------------------------------;
 ;          Code Segment			  ;
@@ -127,11 +128,11 @@ Init_All:
 
 ; Button Initial
 	mov COUNTER_BUTTON_SELECT,#0
-	mov TEMP_SOAK,#0x25
+	mov TEMP_SOAK,#215
 	mov TIME_SOAK,#0x45
-	mov TEMP_REFLOW,#0x23
+	mov TEMP_REFLOW,#189
 	mov TIME_REFLOW,#0x55
-
+	
 	ret
 
 wait_1ms:
@@ -151,55 +152,71 @@ waitms:
 
 ;Increase number when button pushed
 CHECK_BUTTON_INCREASE:
+	jb PB_INCREASE, Increase_press
+	ret
+Increase_press:
 	jb BUTTON_INCREASE, Inc_num
 	Wait_Milli_Seconds(#50)
-	jnb BUTTON_INCREASE, $
+	jb BUTTON_INCREASE, $
 Inc_num:
 	add a, #0x01
 	ret
 	
 ;Decrease number when button pushed
 CHECK_BUTTON_DECREASE:
+	jb PB_DECREASE, Decrease_press
+	ret
+Decrease_press:
 	jb BUTTON_DECREASE, Dec_num
 	Wait_Milli_Seconds(#50)
-	jnb BUTTON_DECREASE, $
+	jb BUTTON_DECREASE, $
 Dec_num:
 	subb a, #0x01
 	ret
 
 CHECK_BUTTON_SELECT:
-	jb BUTTON_SELECT, CHECK_BUTTON_SELECT_DONE
-	Wait_Milli_Seconds(#50)	
-	jb BUTTON_SELECT, CHECK_BUTTON_SELECT_DONE 
-	jnb BUTTON_SELECT, $	
-
+	jnb PB_SELECT, $	
 ; Counter++
 	mov a, COUNTER_BUTTON_SELECT
 	add a,#1
 	mov COUNTER_BUTTON_SELECT,a
+	ret
 
+CHECK_BUTTON_SELECT_STATE:
 ; #0 default #1 S_temp #2 S_time #3 R_temp #4 R_time
+mov a, COUNTER_BUTTON_SELECT
 CHECK_BUTTON_SELECT_1:
-	cjne a,#1,CHECK_BUTTON_SELECT_2
+	cjne a, #1, CHECK_BUTTON_SELECT_2
 	mov a,TEMP_SOAK
-	
+	lcall CHECK_BUTTON_INCREASE
+	lcall CHECK_BUTTON_DECREASE
+	mov TEMP_SOAK, a
 	sjmp CHECK_BUTTON_SELECT_DONE
 	
 CHECK_BUTTON_SELECT_2:
 	cjne a,#2,CHECK_BUTTON_SELECT_3
 	mov a,TIME_SOAK
+	lcall CHECK_BUTTON_INCREASE
+	lcall CHECK_BUTTON_DECREASE
+	mov TIME_SOAK, a
 	
 	sjmp CHECK_BUTTON_SELECT_DONE
 
 CHECK_BUTTON_SELECT_3:
 	cjne a,#3,CHECK_BUTTON_SELECT_4
 	mov a,TEMP_REFLOW
+	lcall CHECK_BUTTON_INCREASE
+	lcall CHECK_BUTTON_DECREASE
+	mov TEMP_REFLOW, a
 	
 	sjmp CHECK_BUTTON_SELECT_DONE
 
 CHECK_BUTTON_SELECT_4:
 	cjne a,#4,CHECK_BUTTON_SELECT_0
 	mov a,TIME_REFLOW
+	lcall CHECK_BUTTON_INCREASE
+	lcall CHECK_BUTTON_DECREASE
+	mov TIME_REFLOW, a
 	
 	sjmp CHECK_BUTTON_SELECT_DONE
 
@@ -215,35 +232,104 @@ CHECK_BUTTON_START:
 
 CHECK_BUTTON_STOP:
 	ret
-
+	
 LCD_PB:
-	lcall CHECK_BUTTON_SELECT
-	lcall CHECK_BUTTON_START
-	lcall CHECK_BUTTON_STOP
+	; Set variables to 1: 'no push button pressed'
+	setb PB_START
+	setb PB_STOP
+	setb PB_SELECT
+	setb PB_INCREASE
+	setb PB_DECREASE
+	; The input pin used to check set to '1'
+	setb P1.5
+	; Check if any push button is pressed
+	; When all button not press, positive will connect with P1.5 and pull P1.5 up, P1.5 will not be zero
+	clr BUTTON_START
+	clr BUTTON_STOP
+	clr BUTTON_SELECT
+	clr BUTTON_INCREASE
+	clr BUTTON_DECREASE
+	jb P1.5, LCD_PB_Done
+
+	; Debounce
+	mov R2, #50
+	lcall waitms
+	jb P1.5, LCD_PB_Done
+
+	; Set the LCD data pins to logic 1
+	setb BUTTON_START
+	setb BUTTON_STOP
+	setb BUTTON_SELECT
+	setb BUTTON_INCREASE
+	setb BUTTON_DECREASE
+
+	; Check the push buttons one by one
+	clr BUTTON_START
+	mov c, P1.5
+	mov PB_START, c
+	setb BUTTON_START
+	
+	clr BUTTON_STOP
+	mov c, P1.5
+	mov PB_STOP, c
+	setb BUTTON_STOP
+
+	clr BUTTON_SELECT
+	mov c, P1.5
+	mov PB_SELECT, c
+	setb BUTTON_SELECT
+
+	clr BUTTON_INCREASE
+	mov c, P1.5
+	mov PB_INCREASE, c
+	setb BUTTON_INCREASE
+
+	clr BUTTON_DECREASE
+	mov c, P1.5
+	mov PB_DECREASE, c
+	setb BUTTON_DECREASE
+
+	; Call function
+	;jnb PB_START, CHECK_BUTTON_START
+	;jnb PB_STOP , CHECK_BUTTON_STOP
+	;jnb PB_SELECT,CHECK_BUTTON_SELECT
+	mov COUNTER_BUTTON_SELECT, #1
+	lcall CHECK_BUTTON_SELECT_STATE
+	
 LCD_PB_Done:		
 	ret
+
+
+SendToLCD:
+	mov b, #100
+	div ab
+	orl a, #0x30 ; Convert hundreds to ASCII
+	lcall ?WriteData ; Send to LCD
+	mov a, b ; Remainder is in register b
+	mov b, #10
+	div ab
+	orl a, #0x30 ; Convert tens to ASCII
+	lcall ?WriteData; Send to LCD
+	mov a, b
+	orl a, #0x30 ; Convert units to ASCII
+	lcall ?WriteData; Send to LCD
+ret
 
 Display_PushButtons_LCD:
 	Set_Cursor(2, 2)
 	mov a, TEMP_SOAK
-	;da a
-    Display_BCD(TEMP_SOAK)	
-
+	lcall SendToLCD
+	
 	Set_Cursor(2, 6)
-	mov a, TIME_SOAK
-	;da a
-    Display_BCD(TIME_SOAK)	
-
+	Display_BCD(TIME_SOAK)
+	
 	Set_Cursor(2, 11)
 	mov a, TEMP_REFLOW
-	;da a
-    Display_BCD(TEMP_REFLOW)	
-
+	lcall SendToLCD
+		
 	Set_Cursor(2, 15)
-    Display_BCD(TIME_REFLOW)		
-
-	;mov a,COUNTER_BUTTON_SELECT
-	;cjne a,#0,Display_PushButtons_LCD_Done
+	Display_BCD(TIME_REFLOW)
+	ret	
 
 Display_PushButtons_LCD_Done:
 	ret
@@ -269,8 +355,9 @@ main:
 
 	
 Forever:
+	
 	;jnb
-	;lcall LCD_PB
+	lcall LCD_PB
 	lcall Display_PushButtons_LCD
 	
 	; Wait 50 ms between readings
