@@ -1,3 +1,4 @@
+;2024/2/11 13:01
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -24,11 +25,18 @@ BAUD              EQU 115200 ; Baud rate of UART in bps
 TIMER1_RELOAD     EQU (0x100-(CLK/(16*BAUD)))
 TIMER0_RELOAD_1MS EQU (0x10000-(CLK/1000))
 
+TIMER2_RATE   EQU 4096     ; 2048Hz squarewave (peak amplitude of CEM-1203 speaker)
+TIMER2_RELOAD EQU ((65536-(CLK/TIMER2_RATE)))
+
 To_temp equ #0x25
-Tj_temp equ #0x25
+;Tj_temp equ #0x25
 
 ORG 0x0000
 	ljmp main
+
+; Timer/Counter 2 overflow interrupt vector
+org 0x002B
+	ljmp Timer2_ISR
 
 ;---------------------------------;
 ;      String Declarations		  ;
@@ -41,13 +49,15 @@ Blank_3:   db '   '				 ,0
 Blank_2:   db '  '				 ,0
 S: 		   db 'S'				 ,0
 R:		   db 'R'				 ,0
+
 ;---------------------------------;
 ;        Pin Connections   		  ;
 ;---------------------------------;
 cseg
 ; These 'equ' must match the hardware wiring
 ; change all p1.3 to p1.2
-; speaker 14
+; speaker pin15
+; LM335(detect temp) pin14
 LCD_RS equ P1.2
 LCD_E  equ P1.4
 LCD_D4 equ P0.0
@@ -62,17 +72,20 @@ BUTTON_SELECT   equ P0.1
 BUTTON_INCREASE equ P0.3
 BUTTON_DECREASE equ P0.2
 
+;declare the pin for speaker
+SOUND_OUT equ P1.0
+
 ;---------------------------------;
 ;            Bit Segment		  ;
 ;---------------------------------;
 BSEG
-
 PB_START   : dbit 1
 PB_STOP    : dbit 1
 PB_SELECT  : dbit 1
 PB_INCREASE: dbit 1
 PB_DECREASE: dbit 1
 mf: dbit 1
+checking_sound: dbit 1
 
 ;---------------------------------;
 ;          Data Segment			  ;
@@ -90,10 +103,13 @@ TEMP_SOAK: ds 1
 TEMP_REFLOW: ds 1
 TEMP_OVEN: ds 1
 TEMP_REF: ds 1
+
 pwm: ds 1
 state: ds 1
+
 ; Counter
 COUNTER_BUTTON_SELECT: ds 1
+Tj_temp: ds 1
 
 ;---------------------------------;
 ;          Include Segment		  ;
@@ -107,6 +123,41 @@ $LIST
 ;          Code Segment			  ;
 ;---------------------------------;
 CSEG
+;Timer2 initialization
+Timer2_Init:
+	mov T2CON, #0 ; Stop timer/counter.  Autoreload mode.
+	mov TH2, #high(TIMER2_RELOAD)
+	mov TL2, #low(TIMER2_RELOAD)
+	; Set the reload value
+	orl T2MOD, #0x80 ; Enable timer 2 autoreload
+	mov RCMP2H, #high(TIMER2_RELOAD)
+	mov RCMP2L, #low(TIMER2_RELOAD)
+	; Init One millisecond interrupt counter.  It is a 16-bit variable made with two 8-bit parts
+	;clr a
+	;mov Count1ms+0, a
+	;mov Count1ms+1, a
+	; Enable the timer and interrupts
+	orl EIE, #0x80 ; Enable timer 2 interrupt ET2=1
+	
+    setb TR2  ; Enable timer 2
+	ret
+
+;Timer2 interrupt service routine
+Timer2_ISR:
+	clr TF2
+    clr TR2
+
+    mov TH2, #high(TIMER2_RELOAD)
+	mov TL2, #low(TIMER2_RELOAD)
+	setb TR2
+	
+    ;cpl SOUND_OUT
+	;lcall wait_1ms
+	jnb checking_sound, Timer2_ISR_done
+	cpl SOUND_OUT
+Timer2_ISR_done:
+    reti
+
 Init_All:
 	; Configure all the pins for biderectional I/O
 	mov	P3M1, #0x00
@@ -115,6 +166,8 @@ Init_All:
 	mov	P1M2, #0x00
 	mov	P0M1, #0x00
 	mov	P0M2, #0x00
+
+;Timer0 initialization	
 	;Timer 0 using for delay functions
 	; Using timer 0 for delay functions.  Initialize here:
 	clr	TR0 ; Stop timer 0
@@ -131,17 +184,35 @@ Init_All:
 	orl	TMOD, #0x20 ; Timer 1 Mode 2
 	mov	TH1, #TIMER1_RELOAD ; TH1=TIMER1_RELOAD;
 	setb TR1
+;Timer2 initialization
+;------------------------------------------;
+;Timer 2(for now speaker)
+   lcall Timer2_Init 
+;------------------------------------------;
 
-	;Timer 2	
-
-	; Button Initial
+; Button Initial
 	mov COUNTER_BUTTON_SELECT,#0x00
 	mov TEMP_SOAK,#215
 	mov TIME_SOAK,#0x45
 	mov TEMP_REFLOW,#189
 	mov TIME_REFLOW,#0x55
+
+; Initialize the pin used by the ADC (P1.1) as input.
+	orl	P1M1, #0b00000010
+	anl	P1M2, #0b11111101
+	
+; Initialize and start the ADC:
+	anl ADCCON0, #0xF0
+	orl ADCCON0, #0x07 ; Select channel 7
+
+; AINDIDS select if some pins are analog inputs or digital I/O:
+	mov AINDIDS, #0x00 ; Disable all analog inputs
+	orl AINDIDS, #0b10000000 ; P1.1 is analog input
+	orl ADCCON1, #0x01 ; Enable ADC
+	
 	ret
 
+;delay configuration
 wait_1ms:
 	clr	TR0 ; Stop timer 0
 	clr	TF0 ; Clear overflow flag
@@ -159,28 +230,117 @@ waitms:
 
 ;Increase number when button pushed
 CHECK_BUTTON_INCREASE:
-		jb PB_INCREASE, Increase_press
+		jb PB_INCREASE, Inc_num
 		ret
-	Increase_press:
-		jb BUTTON_INCREASE, Inc_num
-		Wait_Milli_Seconds(#50)
-		jb BUTTON_INCREASE, $
 	Inc_num:
-		add a, #1
+		add a, #0x01
+		cjne a, #0x0A, done1
+		add a, #0x06
+		ljmp Inc_done
+	done1:
+		cjne a, #0x1A, done2
+		add a, #0x06
+		ljmp Inc_done
+	done2:
+		cjne a, #0x2A, done3
+		add a, #0x06
+		ljmp Inc_done
+	done3:
+		cjne a, #0x3A, done4
+		add a, #0x06
+		ljmp Inc_done
+	done4:
+		cjne a, #0x4A, done5
+		add a, #0x06
+		ljmp Inc_done
+	done5:
+		cjne a, #0x5A, done6
+		add a, #0x06
+		ljmp Inc_done
+	done6:
+		cjne a, #0x6A, done7
+		add a, #0x06
+		ljmp Inc_done
+	done7:
+		cjne a, #0x7A, done8
+		add a, #0x06
+		ljmp Inc_done
+	done8:
+		cjne a, #0x8A, done9
+		add a, #0x06
+		ljmp Inc_done
+	done9:
+		cjne a, #0x9A, done10
+		add a, #0x06
+	done10:
+		cjne a, #0xA0, Inc_done
+		clr a
+		
+	Inc_done:
 		ret
 	
 ;Decrease number when button pushed
 CHECK_BUTTON_DECREASE:
-		jb PB_DECREASE, Decrease_press
+		jb PB_DECREASE, Dec_num
 		ret
-	Decrease_press:
-		jb BUTTON_DECREASE, Dec_num
-		Wait_Milli_Seconds(#50)
-		jb BUTTON_DECREASE, $
 	Dec_num:
-		subb a, #1
+		clr c
+		subb a, #0x01
+		cjne a, #0x0F, d_done1
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done1:
+		cjne a, #0x1F, d_done2
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done2:
+		cjne a, #0x2F, d_done3
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done3:
+		cjne a, #0x3F, d_done4
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done4:
+		cjne a, #0x4F, d_done5
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done5:
+		cjne a, #0x5F, d_done6
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done6:
+		cjne a, #0x6F, d_done7
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done7:
+		cjne a, #0x7F, d_done8
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done8:
+		cjne a, #0x8F, d_done9
+		clr c
+		subb a, #0x06
+		ljmp Dec_done
+	d_done9:
+		cjne a, #0x9F, d_done10
+		clr c
+		subb a, #0x06
+	d_done10:
+		cjne a, #0xFF, Dec_done
+		mov a, #0x99
+	Dec_done:
 		ret
 
+;check state for choosing which number should be changed
 ; #0 default #1 S_temp #2 S_time #3 R_temp #4 R_time
 CHECK_BUTTON_SELECT_STATE:
 		mov a, COUNTER_BUTTON_SELECT
@@ -211,7 +371,6 @@ CHECK_BUTTON_SELECT_STATE:
 		mov a,TIME_SOAK
 		lcall CHECK_BUTTON_INCREASE
 		lcall CHECK_BUTTON_DECREASE
-		;da a
 		mov TIME_SOAK, a
 
 		Display_char(#'=')
@@ -238,19 +397,21 @@ CHECK_BUTTON_SELECT_STATE:
 		mov a,TIME_REFLOW
 		lcall CHECK_BUTTON_INCREASE
 		lcall CHECK_BUTTON_DECREASE
-		;da a
 		mov TIME_REFLOW, a
 		
 		Display_char(#'=')
 	CHECK_BUTTON_SELECT_STATE_DONE:
 		ret     
 
+;FSM start
 CHECK_BUTTON_START:
 	ret
 
+;FSM stop
 CHECK_BUTTON_STOP:
 	ret	
 
+;Detect which botton is pushed
 LCD_PB:
 		; Set variables to 1: 'no push button pressed'
 		setb PB_START
@@ -310,6 +471,7 @@ LCD_PB:
 	LCD_PB_Done:		
 		ret
 
+;Check whcih variable should be changed
 CHECK_BUTTON_SELECT:
 		mov a,COUNTER_BUTTON_SELECT
 		add a, #1
@@ -324,7 +486,7 @@ CHECK_BUTTON_SELECT:
 	CHECK_BUTTON_SELECT_DONE:
 		ret
 	
-
+;Send numbers to LCD
 SendToLCD:
 	mov b, #100
 	div ab
@@ -340,6 +502,7 @@ SendToLCD:
 	lcall ?WriteData; Send to LCD
 	ret
 
+;Display information on LCD
 Display_PushButtons_LCD:
 	Set_Cursor(2, 2)
 	mov a, TEMP_SOAK
@@ -366,10 +529,9 @@ Display_formated_BCD:
 	Display_BCD(bcd+1)
 	Display_BCD(bcd+0)
 	Set_Cursor(2, 10)
-	;Display_char(#'=')
 	ret
 	
-	
+; Display the room temperature in LCD
 Display_Tj:
 	clr ADCF
 	setb ADCS ;  ADC start trigger signal
@@ -408,6 +570,7 @@ Display_Tj:
 	lcall Display_formated_BCD ;give temperature to LCD
 
 ret
+
 ;---------------------------------;
 ;    main function starts here    ;
 ;---------------------------------;
@@ -416,30 +579,27 @@ main:
 	lcall Init_All
     lcall LCD_4BIT
     
+	setb EA ; Enable Global interrupts
+
     ; initial messages in LCD
 	Set_Cursor(1, 1)
     Send_Constant_String(#Line1)
 
 	Set_Cursor(1,5)
 	Display_BCD(To_temp)
-	Set_Cursor(1,13)
-	Display_BCD(Tj_temp)
 
 	Set_Cursor(2, 1)
     Send_Constant_String(#Line2)
 
 Forever:
-	
 	lcall LCD_PB
 	lcall CHECK_BUTTON_SELECT_STATE
 	lcall Display_PushButtons_LCD
-	;lcall Display_Tj
+	lcall Display_Tj
 	
 	;Wait 50 ms between readings
 	mov R2, #50
 	lcall waitms
-	
 	sjmp Forever
 	
 END
-	
