@@ -1,4 +1,4 @@
-;2024/2/11 13:01
+;2024/2/11 13:19
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -228,8 +228,8 @@ waitms:
 	djnz R2, waitms
 	ret
 
-;Increase number when button pushed
-CHECK_BUTTON_INCREASE:
+;Increase time number when button pushed
+CHECK_BUTTON_INCREASE_time:
 		jb PB_INCREASE, Inc_num
 		ret
 	Inc_num:
@@ -279,8 +279,8 @@ CHECK_BUTTON_INCREASE:
 	Inc_done:
 		ret
 	
-;Decrease number when button pushed
-CHECK_BUTTON_DECREASE:
+;Decrease time number when button pushed
+CHECK_BUTTON_DECREASE_time:
 		jb PB_DECREASE, Dec_num
 		ret
 	Dec_num:
@@ -340,6 +340,23 @@ CHECK_BUTTON_DECREASE:
 	Dec_done:
 		ret
 
+;Increase temp number when button pushed
+CHECK_BUTTON_INCREASE:
+	jb PB_INCREASE, Inc_temp_num
+	ret
+Inc_temp_num:
+	add a, #0x01
+	ret
+	
+;Decrease temp number when button pushed
+CHECK_BUTTON_DECREASE:
+	jb PB_DECREASE, Dec_temp_num
+	ret
+Dec_temp_num:
+	clr c
+	subb a, #0x01
+	ret
+
 ;check state for choosing which number should be changed
 ; #0 default #1 S_temp #2 S_time #3 R_temp #4 R_time
 CHECK_BUTTON_SELECT_STATE:
@@ -369,8 +386,8 @@ CHECK_BUTTON_SELECT_STATE:
 
 		cjne a,#2,CHECK_BUTTON_SELECT_STATE3
 		mov a,TIME_SOAK
-		lcall CHECK_BUTTON_INCREASE
-		lcall CHECK_BUTTON_DECREASE
+		lcall CHECK_BUTTON_INCREASE_time
+		lcall CHECK_BUTTON_DECREASE_time
 		mov TIME_SOAK, a
 
 		Display_char(#'=')
@@ -395,8 +412,8 @@ CHECK_BUTTON_SELECT_STATE:
 
 		cjne a,#4,CHECK_BUTTON_SELECT_STATE_DONE
 		mov a,TIME_REFLOW
-		lcall CHECK_BUTTON_INCREASE
-		lcall CHECK_BUTTON_DECREASE
+		lcall CHECK_BUTTON_INCREASE_time
+		lcall CHECK_BUTTON_DECREASE_time
 		mov TIME_REFLOW, a
 		
 		Display_char(#'=')
