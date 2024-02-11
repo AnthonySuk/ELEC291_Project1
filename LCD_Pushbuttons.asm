@@ -77,6 +77,7 @@ mf: dbit 1
 ;---------------------------------;
 ;          Data Segment			  ;
 ;---------------------------------;
+
 ; These register definitions needed by 'math32.inc'
 DSEG at 30H
 x:   ds 4
@@ -90,6 +91,17 @@ TEMP_SOAK: ds 1
 TEMP_REFLOW: ds 1
 TEMP_OVEN: ds 1
 TEMP_REF: ds 1
+=======
+DSEG at 0x30
+
+TIME_SOAK: ds 1
+TIME_REFLOW: ds 1
+TEMP_SOAK: ds 1
+TEMP_REFLOW: ds 1
+
+TEMP_OVEN: ds 2
+TEMP_REF: ds 2
+
 pwm: ds 1
 state: ds 1
 ; Counter
