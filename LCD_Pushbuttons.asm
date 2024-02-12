@@ -651,13 +651,28 @@ Display_formated_BCD_Ste:
 	lcall SendToLCD
 	ret
 
+SendToSerial:
+	mov b, #100
+	div ab
+	orl a, #0x30 ; Convert hundreds to ASCII
+	lcall putchar ; Send to Serial
+	mov a, b ; Remainder is in register b
+	mov b, #10
+	div ab
+	orl a, #0x30 ; Convert tens to ASCII
+	lcall putchar ; Send to Serial
+	mov a, b
+	orl a, #0x30 ; Convert units to ASCII
+	lcall putchar ; Send to Serial
+	ret
+
 return:
     DB  '\r', '\n', 0
 
 Send_to_computer:
 	push AR0
-	Send_BCD(bcd+1)
-    Send_BCD(bcd+0)
+	mov a, temp
+	lcall SendToSerial
     mov DPTR, #return
     lcall SendString
     pop AR0
