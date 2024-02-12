@@ -172,6 +172,7 @@ Timer2_ISR:
 
 	push acc
 	push psw
+
 Timer2_ISR_Inc_COUTERPWM:
 	inc COUNTER_TIME_PWM+0
 	mov a, COUNTER_TIME_PWM+0
@@ -197,7 +198,7 @@ Timer2_PWM_Inc_Done:
 	mov PWM_OUT, c
 	
 	mov a, pwm_counter
-	cjne a, #100, Timer2_ISR_done
+	cjne a, #100, Timer2_ISR_Inc_COUTER1MS
 	mov pwm_counter, #0	
 
 Timer2_ISR_Inc_COUTER1MS:
@@ -266,10 +267,10 @@ Init_All:
 
 ; Button Initial
 	mov COUNTER_BUTTON_SELECT,#0x00
-	mov TEMP_SOAK,#150
-	mov TIME_SOAK,#0x10
-	mov TEMP_REFLOW,#200
-	mov TIME_REFLOW,#0x10
+	mov TEMP_SOAK,#80
+	mov TIME_SOAK,#5
+	mov TEMP_REFLOW,#125
+	mov TIME_REFLOW,#5
 
 ; Initialize the pins used by the ADC (P1.1, P1.7) as input.
 	orl	P1M1, #0b00100010
@@ -742,7 +743,7 @@ main:
     Send_Constant_String(#Line2)
     
 	mov FSM1_state, #0x00
-	
+	mov pwm, #0	
 
 	FSM1:
 	
@@ -750,13 +751,13 @@ main:
 	lcall Get_temp_adc
 	lcall Display_Tj
 	lcall CHECK_BUTTON_SELECT_STATE
-
+	
     mov a, FSM1_state
 	cjne a, #0x00, FSM1_state1
 	lcall LCD_PB
 	lcall Display_PushButtons_LCD
 	
-	mov sec,#0x00
+	mov sec, #0
 
 FSM1_state0_done:
     ljmp FSM1
@@ -772,7 +773,7 @@ FSM1_state1:
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_0)
 	lcall LCD_PB
-	mov pwm, #50
+	mov pwm, #100
 	mov a, TIME_REALTIME
 	clr c
 	cjne a, #60, next_check
@@ -874,9 +875,9 @@ FSM1_state5:
 	;cjne a, #5,FSM1_state0
 	lcall LCD_PB
 	mov pwm,#0
-	mov a,#0x60
+	mov a, #60
 	clr c
-	subb a,temp
+	subb a, temp
 	jc FSM1_state5_done
 	mov FSM1_state,#0
 	mov sec,#0x00
