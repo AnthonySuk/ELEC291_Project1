@@ -1,4 +1,4 @@
-;2024/2/11 13:19
+;2024/2/11 13:58
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -25,7 +25,7 @@ BAUD              EQU 115200 ; Baud rate of UART in bps
 TIMER1_RELOAD     EQU (0x100-(CLK/(16*BAUD)))
 TIMER0_RELOAD_1MS EQU (0x10000-(CLK/1000))
 
-TIMER2_RATE   EQU 4096     ; 2048Hz squarewave (peak amplitude of CEM-1203 speaker)
+TIMER2_RATE   EQU 1000     ; 2048Hz squarewave (peak amplitude of CEM-1203 speaker)
 TIMER2_RELOAD EQU ((65536-(CLK/TIMER2_RATE)))
 
 To_temp equ #0x25
@@ -95,21 +95,22 @@ DSEG at 30H
 x:   ds 4
 y:   ds 4
 bcd: ds 5
-
 DSEG at 0x50
+; Variables
+TIME_REALTIME: ds 1
 TIME_SOAK: ds 1
 TIME_REFLOW: ds 1
 TEMP_SOAK: ds 1
 TEMP_REFLOW: ds 1
 TEMP_OVEN: ds 1
 TEMP_REF: ds 1
-
+Tj_temp: ds 1
 pwm: ds 1
 state: ds 1
-
 ; Counter
 COUNTER_BUTTON_SELECT: ds 1
-Tj_temp: ds 1
+COUNTER_REALTIME: ds 2
+COUNTER_1MS: ds 2
 
 ;---------------------------------;
 ;          Include Segment		  ;
@@ -122,7 +123,7 @@ $LIST
 ;---------------------------------;
 ;          Code Segment			  ;
 ;---------------------------------;
-CSEG
+
 ;Timer2 initialization
 Timer2_Init:
 	mov T2CON, #0 ; Stop timer/counter.  Autoreload mode.
@@ -133,30 +134,49 @@ Timer2_Init:
 	mov RCMP2H, #high(TIMER2_RELOAD)
 	mov RCMP2L, #low(TIMER2_RELOAD)
 	; Init One millisecond interrupt counter.  It is a 16-bit variable made with two 8-bit parts
-	;clr a
-	;mov Count1ms+0, a
-	;mov Count1ms+1, a
+	clr a
+	mov COUNTER_1MS+0, a
+	mov COUNTER_1MS+1, a
 	; Enable the timer and interrupts
 	orl EIE, #0x80 ; Enable timer 2 interrupt ET2=1
-	
-    setb TR2  ; Enable timer 2
+    ;setb TR2  ; Enable timer 2
 	ret
 
-;Timer2 interrupt service routine
+;---------------------------------;
+; ISR for timer 2                 ;
+;---------------------------------;
 Timer2_ISR:
 	clr TF2
-    clr TR2
+    cpl P0.4
 
-    mov TH2, #high(TIMER2_RELOAD)
-	mov TL2, #low(TIMER2_RELOAD)
-	setb TR2
-	
-    ;cpl SOUND_OUT
-	;lcall wait_1ms
-	jnb checking_sound, Timer2_ISR_done
-	cpl SOUND_OUT
-Timer2_ISR_done:
-    reti
+	push acc
+	push psw
+
+    inc COUNTER_1MS+0
+	mov a, COUNTER_1MS+0
+	jnz Timer2_Inc_Done
+	inc COUNTER_1MS+1
+
+	;jnb checking_sound, Timer2_ISR_done
+	;cpl SOUND_OUT
+Timer2_Inc_Done:
+	mov a,COUNTER_1MS+0
+	cjne a,#low(1000), Timer2_ISR_Done
+	mov a,COUNTER_1MS+1
+	cjne a,#high(1000), Timer2_ISR_Done
+	; 1 second is satisfy, clean counter
+	clr A
+	mov COUNTER_1MS+0,A
+	mov COUNTER_1MS+1,A
+	;add 1 to TIME_REALTIME
+	mov a,TIME_REALTIME
+	add a,#1
+	mov TIME_REALTIME,a
+
+Timer2_ISR_Done:
+	pop psw
+	pop acc
+	reti
 
 Init_All:
 	; Configure all the pins for biderectional I/O
@@ -190,13 +210,14 @@ Init_All:
    lcall Timer2_Init 
 ;------------------------------------------;
 
-; Button Initial
-	mov COUNTER_BUTTON_SELECT,#0x00
+; Display variables Initial
 	mov TEMP_SOAK,#215
 	mov TIME_SOAK,#0x45
 	mov TEMP_REFLOW,#189
 	mov TIME_REFLOW,#0x55
-
+	mov TIME_REALTIME,#0
+; Counter Initial
+	mov COUNTER_BUTTON_SELECT,#0x00
 ; Initialize the pin used by the ADC (P1.1) as input.
 	orl	P1M1, #0b00000010
 	anl	P1M2, #0b11111101
@@ -422,6 +443,7 @@ CHECK_BUTTON_SELECT_STATE:
 
 ;FSM start
 CHECK_BUTTON_START:
+	setb TR2
 	ret
 
 ;FSM stop
@@ -529,8 +551,10 @@ Display_PushButtons_LCD:
 	Display_BCD(TIME_SOAK)
 	
 	; Test Only, show COUNTER_BUTTON_SELECT
-	;Set_Cursor(2,8)
+	Set_Cursor(2,8)
+	mov a, TIME_REALTIME
 	;Display_BCD(COUNTER_BUTTON_SELECT)
+	lcall SendToLCD
 	
 	Set_Cursor(2, 11)
 	mov a, TEMP_REFLOW
