@@ -1,4 +1,4 @@
-;2024/2/11 13:19
+;2024/2/11 21:18
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -159,6 +159,8 @@ Timer2_Init:
 	mov COUNTER_1MS+1, a
 	mov COUNTER_TIME_PWM+0, A
 	mov COUNTER_TIME_PWM+1, A
+
+	mov pwm_counter,#0
 	; Enable the timer and interrupts
 	orl EIE, #0x80 ; Enable timer 2 interrupt ET2=1
     setb TR2  ; Enable timer 2
@@ -169,7 +171,6 @@ Timer2_Init:
 ;---------------------------------;
 Timer2_ISR:
 	clr TF2
-
 	push acc
 	push psw
 
@@ -283,7 +284,7 @@ Init_All:
 	mov AINDIDS, #0x00 ; Disable all analog inputs
 	orl AINDIDS, #0b00100001 ; Activate AIN0 and AIN7 analog inputs
 	orl ADCCON1, #0x01 ; Enable ADC
-	
+	setb EA
 	ret
 
 ;delay configuration
@@ -323,7 +324,7 @@ SendString:
     clr A
     movc A, @A+DPTR
     jz SendStringDone
-    lcall putchar
+    ;lcall putchar
     inc DPTR
     sjmp SendString
 SendStringDone:
@@ -515,9 +516,11 @@ Display_PushButtons_LCD:
 	mov a, TIME_SOAK
 	lcall SendToLCD_2digit
 	
-	; Test Only, show COUNTER_BUTTON_SELECT
-	;Set_Cursor(2,8)
+	;Test Only, show COUNTER_BUTTON_SELECT
+	Set_Cursor(2,8)
+	mov a,pwm_counter
 	;Display_BCD(COUNTER_BUTTON_SELECT)
+	lcall SendToLCD
 	
 	Set_Cursor(2, 11)
 	mov a, TEMP_REFLOW
@@ -655,13 +658,13 @@ return:
     DB  '\r', '\n', 0
 
 Send_to_computer:
-	push AR0
-	Send_BCD(bcd+1)
-    Send_BCD(bcd+0)
-    mov DPTR, #return
-    lcall SendString
-    pop AR0
-    ret
+	;push AR0
+	;Send_BCD(bcd+1)
+    ;Send_BCD(bcd+0)
+    ;mov DPTR, #return
+    ;lcall SendString
+    ;pop AR0
+    ;ret
 
 Get_temp_adc:
 ; Read the 2.08V LED voltage connected to AIN0 on pin 6
@@ -732,7 +735,6 @@ main:
 	lcall Init_All
     lcall LCD_4BIT
     
-	setb EA ; Enable Global interrupts    
     ; initial messages in LCD
 	Set_Cursor(1, 1)
     Send_Constant_String(#Line1)
@@ -743,7 +745,17 @@ main:
     Send_Constant_String(#Line2)
     
 	mov FSM1_state, #0x00
+<<<<<<< Updated upstream
 	mov pwm, #0	
+=======
+
+	loop:
+		mov pwm,#0
+		
+		lcall Display_PushButtons_LCD
+		sjmp loop
+	
+>>>>>>> Stashed changes
 
 	FSM1:
 	
