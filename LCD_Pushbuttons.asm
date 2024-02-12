@@ -742,6 +742,7 @@ main:
     Send_Constant_String(#Line2)
     
 	mov FSM1_state, #0x00
+	
 
 	FSM1:
 	
@@ -771,7 +772,7 @@ FSM1_state1:
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_0)
 	lcall LCD_PB
-	mov pwm, #100
+	mov pwm, #50
 	mov a, TIME_REALTIME
 	clr c
 	cjne a, #60, next_check
