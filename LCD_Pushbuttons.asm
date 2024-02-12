@@ -51,12 +51,14 @@ Blank_3:   db '   '				 ,0
 Blank_2:   db '  '				 ,0
 S: 		   db 'S'				 ,0
 R:		   db 'R'				 ,0
-Reflow_n:  db 'STOP  ' ,0
-Reflow_0:  db 'RAMP S' ,0
-Reflow_1:  db 'SOAK  ' ,0
-Reflow_2:  db 'RAMP P' ,0
-Reflow_3:  db 'REFLOW' ,0
-Reflow_4:  db 'COOLIG' ,0
+Reflow_n:  db 'STOP          ',0
+Reflow_0:  db 'RAMP SOAK   ',0
+Reflow_1:  db 'SOAK        ',0
+Reflow_2:  db 'RAMP PEAK   ',0
+Reflow_3:  db 'REFLOW      ',0
+Reflow_4:  db 'COOLIG      ',0
+Blank:     db '                 ',0
+Warning:   db ' To IS TOO LOW!  ',0
 
 
 ;---------------------------------;
@@ -75,7 +77,7 @@ LCD_D6 equ P0.2
 LCD_D7 equ P0.3
 ; Button 
 ; For some reason, we reverse the pin of increase and decrease
-BUTTON_START    equ P1.3
+BUTTON_START    equ P1.2
 BUTTON_STOP     equ P0.0
 BUTTON_SELECT   equ P0.1
 BUTTON_INCREASE equ P0.3
@@ -159,7 +161,7 @@ Timer2_Init:
 	mov COUNTER_TIME_PWM+1, A
 	; Enable the timer and interrupts
 	orl EIE, #0x80 ; Enable timer 2 interrupt ET2=1
-    ;setb TR2  ; Enable timer 2
+    setb TR2  ; Enable timer 2
 	ret
 
 ;---------------------------------;
@@ -167,7 +169,6 @@ Timer2_Init:
 ;---------------------------------;
 Timer2_ISR:
 	clr TF2
-    cpl P0.4
 
 	push acc
 	push psw
@@ -176,16 +177,8 @@ Timer2_ISR_Inc_COUTERPWM:
 	mov a, COUNTER_TIME_PWM+0
 	jnz Timer2_PWM_Inc_Done
 	inc COUNTER_TIME_PWM+1
-
-Timer2_ISR_Inc_COUTER1MS:
-    inc COUNTER_1MS+0
-	mov a, COUNTER_1MS+0
-	jnz Timer2_RealTime_Inc_Done
-	inc COUNTER_1MS+1
-	sjmp Timer2_RealTime_Inc_Done
-
-	;jnb checking_sound, Timer2_ISR_done
-	;cpl SOUND_OUT
+	sjmp Timer2_ISR_Inc_COUTER1MS
+	
 Timer2_PWM_Inc_Done:
 	mov a,COUNTER_TIME_PWM+0
 	cjne a,#low(10), Timer2_ISR_Inc_COUTER1MS
@@ -205,8 +198,14 @@ Timer2_PWM_Inc_Done:
 	
 	mov a, pwm_counter
 	cjne a, #100, Timer2_ISR_done
-	mov pwm_counter, #0
-	ret
+	mov pwm_counter, #0	
+
+Timer2_ISR_Inc_COUTER1MS:
+    inc COUNTER_1MS+0
+	mov a, COUNTER_1MS+0
+	jnz Timer2_RealTime_Inc_Done
+	inc COUNTER_1MS+1
+	sjmp Timer2_RealTime_Inc_Done
 	
 Timer2_RealTime_Inc_Done:
 	mov a,COUNTER_1MS+0
@@ -267,10 +266,10 @@ Init_All:
 
 ; Button Initial
 	mov COUNTER_BUTTON_SELECT,#0x00
-	mov TEMP_SOAK,#215
-	mov TIME_SOAK,#0x45
-	mov TEMP_REFLOW,#189
-	mov TIME_REFLOW,#0x55
+	mov TEMP_SOAK,#150
+	mov TIME_SOAK,#0x10
+	mov TEMP_REFLOW,#200
+	mov TIME_REFLOW,#0x10
 
 ; Initialize the pins used by the ADC (P1.1, P1.7) as input.
 	orl	P1M1, #0b00100010
@@ -308,49 +307,6 @@ CHECK_BUTTON_INCREASE_time:
 		ret
 	Inc_num:
 		add a, #0x01
-		cjne a, #0x0A, done1
-		add a, #0x06
-		ljmp Inc_done
-	done1:
-		cjne a, #0x1A, done2
-		add a, #0x06
-		ljmp Inc_done
-	done2:
-		cjne a, #0x2A, done3
-		add a, #0x06
-		ljmp Inc_done
-	done3:
-		cjne a, #0x3A, done4
-		add a, #0x06
-		ljmp Inc_done
-	done4:
-		cjne a, #0x4A, done5
-		add a, #0x06
-		ljmp Inc_done
-	done5:
-		cjne a, #0x5A, done6
-		add a, #0x06
-		ljmp Inc_done
-	done6:
-		cjne a, #0x6A, done7
-		add a, #0x06
-		ljmp Inc_done
-	done7:
-		cjne a, #0x7A, done8
-		add a, #0x06
-		ljmp Inc_done
-	done8:
-		cjne a, #0x8A, done9
-		add a, #0x06
-		ljmp Inc_done
-	done9:
-		cjne a, #0x9A, done10
-		add a, #0x06
-	done10:
-		cjne a, #0xA0, Inc_done
-		clr a
-		
-	Inc_done:
 		ret
 	
 ;Decrease time number when button pushed
@@ -360,58 +316,6 @@ CHECK_BUTTON_DECREASE_time:
 	Dec_num:
 		clr c
 		subb a, #0x01
-		cjne a, #0x0F, d_done1
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done1:
-		cjne a, #0x1F, d_done2
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done2:
-		cjne a, #0x2F, d_done3
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done3:
-		cjne a, #0x3F, d_done4
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done4:
-		cjne a, #0x4F, d_done5
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done5:
-		cjne a, #0x5F, d_done6
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done6:
-		cjne a, #0x6F, d_done7
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done7:
-		cjne a, #0x7F, d_done8
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done8:
-		cjne a, #0x8F, d_done9
-		clr c
-		subb a, #0x06
-		ljmp Dec_done
-	d_done9:
-		cjne a, #0x9F, d_done10
-		clr c
-		subb a, #0x06
-	d_done10:
-		cjne a, #0xFF, Dec_done
-		mov a, #0x99
-	Dec_done:
 		ret
 
 SendString:
@@ -504,13 +408,7 @@ CHECK_BUTTON_SELECT_STATE:
 	CHECK_BUTTON_SELECT_STATE_DONE:
 		ret     
 
-;FSM start
-CHECK_BUTTON_START:
-	ret
 
-;FSM stop
-CHECK_BUTTON_STOP:
-	ret	
 
 ;Detect which botton is pushed
 LCD_PB:
@@ -531,8 +429,8 @@ LCD_PB:
 		clr BUTTON_DECREASE
 		jb P1.5, LCD_PB_Done
 		; Debounce
-		mov R2, #50
-		lcall waitms
+		mov R2, #10
+		lcall Waitms_NOINT
 		jb P1.5, LCD_PB_Done
 		; Set the LCD data pins to logic 1
 		setb BUTTON_START
@@ -572,6 +470,25 @@ LCD_PB:
 	LCD_PB_Done:		
 		ret
 
+;FSM start
+CHECK_BUTTON_START:
+	push acc
+	;setb TR2
+	mov a, #0x01
+	mov FSM1_state, a
+	mov TIME_REALTIME, #0
+	pop acc
+	ret
+
+;FSM stop
+CHECK_BUTTON_STOP:
+	push acc
+	
+	mov a, #0x00
+	mov FSM1_state, a
+	pop acc
+	ret	
+
 ;Check whcih variable should be changed
 CHECK_BUTTON_SELECT:
 		mov a,COUNTER_BUTTON_SELECT
@@ -594,7 +511,8 @@ Display_PushButtons_LCD:
 	lcall SendToLCD
 	
 	Set_Cursor(2, 6)
-	Display_BCD(TIME_SOAK)
+	mov a, TIME_SOAK
+	lcall SendToLCD_2digit
 	
 	; Test Only, show COUNTER_BUTTON_SELECT
 	;Set_Cursor(2,8)
@@ -605,14 +523,15 @@ Display_PushButtons_LCD:
 	lcall SendToLCD
 		
 	Set_Cursor(2, 15)
-	Display_BCD(TIME_REFLOW)
+	mov a, TIME_REFLOW
+	lcall SendToLCD_2digit
 	ret	
 	
 ; Display the room temperature in LCD
-Display_Tj:
+Display_Tj_ban:
 	clr ADCF
 	setb ADCS ;  ADC start trigger signal
-    jnb ADCF, $ ; Wait for conversion complete
+    jnb ADCF, $ ; for conversion complete
     
     ; Read the ADC result and store in [R1, R0]
     push acc
@@ -646,10 +565,21 @@ Display_Tj:
 	lcall hex2bcd
 	
 	Set_Cursor(1, 13)
-	lcall Display_formated_BCD ;give temperature to LCD
+	lcall Display_formated_BCD_Su ;give temperature to LCD
 	pop acc
+	ret
 
-ret
+Display_formated_BCD_Su:
+	Display_BCD(bcd+2)
+	Display_char(#'.')
+	Display_BCD(bcd+1)
+	Display_BCD(bcd+0)
+	ret
+
+Display_Tj:
+	Set_Cursor(1, 13)
+	Display_char(#'2')
+	Display_char(#'2')
 
 Read_ADC:
 	clr ADCF
@@ -704,10 +634,20 @@ SendToLCD:
 	lcall ?WriteData; Send to LCD
 	ret
 	
-Display_formated_BCD:
+SendToLCD_2digit:
+	mov b, #10
+	div ab
+	orl a, #0x30 ; Convert tens to ASCII
+	lcall ?WriteData; Send to LCD
+	mov a, b
+	orl a, #0x30 ; Convert units to ASCII
+	lcall ?WriteData; Send to LCD
+	ret
+	
+Display_formated_BCD_Ste:
+	mov a, temp
 	Set_Cursor(1, 4)
-	Display_BCD(bcd+1)
-	Display_BCD(bcd+0)
+	lcall SendToLCD
 	ret
 
 return:
@@ -753,26 +693,35 @@ Get_temp_adc:
 	mov y+3, #0
 	lcall div32
 	
-	
 	load_y(3)
 	lcall div32
 	load_y(41)
 	lcall div32
+	load_y(22)
+	lcall add32
 
 	mov temp,x
 
 	; Convert to BCD and display
 	lcall hex2bcd
-	lcall Display_formated_BCD
+	lcall Display_formated_BCD_Ste
 	; Wait 500 ms between conversions
-	;mov R2, #250
-	;lcall waitms
-	;mov R2, #250
-	;lcall waitms
+	mov R2, #50
+	lcall Waitms_NOINT
 	lcall Send_to_computer
-	ljmp Get_temp_adc
+	ret
 
-
+Waitms_NOINT:
+	push AR1
+	push AR0
+L3_1: mov R1, #200
+L2_1: mov R0, #104
+L1_1: djnz R0, L1_1 ; 4 cycles->4*60.24ns*104=25us
+    djnz R1, L2_1 ; 25us*200=5.0ms
+    djnz R2, L3_1 ; 5.0ms*100=0.5s (approximately)
+    pop AR0
+    pop AR1
+    ret
 
 ;---------------------------------;
 ;    main function starts here    ;
@@ -794,17 +743,16 @@ main:
     
 	mov FSM1_state, #0x00
 
-
 	FSM1:
 	
 	FSM1_state0:
-
+	lcall Get_temp_adc
 	lcall Display_Tj
+	lcall CHECK_BUTTON_SELECT_STATE
 
     mov a, FSM1_state
 	cjne a, #0x00, FSM1_state1
 	lcall LCD_PB
-	lcall CHECK_BUTTON_SELECT_STATE
 	lcall Display_PushButtons_LCD
 	
 	mov sec,#0x00
@@ -812,15 +760,23 @@ main:
 FSM1_state0_done:
     ljmp FSM1
 FSM1_state1:
-
-	lcall Display_Tj
+	;lcall Get_temp_adc
+	;lcall Display_Tj
+	Set_Cursor(2, 13)
+    mov a, TIME_REALTIME
+    lcall SendToLCD
+    Display_char(#'s')
+	mov a, FSM1_state
+	cjne a, #1, ZHONGZHUAN
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_0)
-	cjne a, #1, FSM1_state2
 	lcall LCD_PB
 	mov pwm, #100
-	mov a, sec
-	cjne a, #0x60, check_abort
+	mov a, TIME_REALTIME
+	clr c
+	cjne a, #60, next_check
+next_check:
+	jnc check_abort 
 Continue_state1:
 	mov a, TEMP_SOAK
 	clr c
@@ -831,23 +787,33 @@ Continue_state1:
 FSM1_state1_done:
 	ljmp FSM1
 	
+ZHONGZHUAN:
+	ljmp FSM1_state2
+	
 check_abort:
 	clr c
 	mov temp, a
-	subb a, #0x50
+	subb a, #50
 	jc ABORTION
 	ljmp Continue_state1
 ABORTION:
 	mov FSM1_state,#0
+	Set_Cursor(2, 1)
+    Send_Constant_String(#Warning)
+    mov R2, #200
+    lcall Waitms_NOINT
+    lcall Waitms_NOINT
+	Set_Cursor(2, 1)
+    Send_Constant_String(#Line2)
 	ljmp FSM1
-
+;;wait soak
 FSM1_state2:
-	
-	lcall Display_Tj
+	;lcall Get_temp_adc
+	;lcall Display_Tj
+	mov a, FSM1_state
+	cjne a, #2, FSM1_state3
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_1)
-	cjne a, #2, FSM1_state3
-
 	lcall LCD_PB
 next_2:
 
@@ -859,14 +825,14 @@ next_2:
     mov FSM1_state, #3
 FSM1_state2_done:
     ljmp FSM1
-
+;;wait until temp reflow
 FSM1_state3:
-
-	lcall Display_Tj
+	;lcall Get_temp_adc
+	;lcall Display_Tj
+	mov a, FSM1_state
+	cjne a, #3, FSM1_state4
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_2)
-	cjne a, #3, FSM1_state4
-
 	lcall LCD_PB
 next_3:
 	mov pwm, #100
@@ -881,12 +847,12 @@ FSM1_state3_done:
 	ljmp FSM1
 
 FSM1_state4:
-
-	lcall Display_Tj
+	;lcall Get_temp_adc
+	;lcall Display_Tj
+	mov a, FSM1_state
+	cjne a, #4, FSM1_state5
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_3)
-	cjne a, #4,FSM1_state5
-
 	lcall LCD_PB
 next_4:
 	mov pwm,#20
@@ -900,19 +866,23 @@ FSM1_state4_done:
 	ljmp FSM1
 
 FSM1_state5:
-
+	lcall Get_temp_adc
 	lcall Display_Tj
-	Set_Cursor(2, 1)
-    Send_Constant_String(#Reflow_4)
+    Set_Cursor(2, 1)
+    Send_Constant_String(#Reflow_4) 
 	;cjne a, #5,FSM1_state0
 	lcall LCD_PB
-	mov pwm,#20
+	mov pwm,#0
 	mov a,#0x60
 	clr c
 	subb a,temp
 	jc FSM1_state5_done
 	mov FSM1_state,#0
 	mov sec,#0x00
+	Set_Cursor(2, 1)
+    Send_Constant_String(#Blank)
+    Set_Cursor(2, 1)
+    Send_Constant_String(#Line2)
 
 FSM1_state5_done:
 	ljmp FSM1
