@@ -1,4 +1,4 @@
-;2024/2/11 13:19
+;2024/2/11 15:49
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -30,6 +30,8 @@ TIMER0_RELOAD_1MS EQU (0x10000-(CLK/1000))
 TIMER2_RATE   EQU 1000     ; 2048Hz squarewave (peak amplitude of CEM-1203 speaker)
 TIMER2_RELOAD EQU ((65536-(CLK/TIMER2_RATE)))
 
+room_temp EQU 22
+
 
 ;Tj_temp equ #0x25
 
@@ -45,20 +47,22 @@ org 0x002B
 ;---------------------------------;
 ;              1234567890123456    <- This helps determine the location of the counter
 ;Line1:    db 'LCD PUSH BUTTONS' , 0
-Line1:     db 'To= xxC  Tj=xxC ' ,0
-Line2:     db 'Sxxx,xx  Rxxx,xx' ,0
-Blank_3:   db '   '				 ,0
-Blank_2:   db '  '				 ,0
-S: 		   db 'S'				 ,0
-R:		   db 'R'				 ,0
+Line1:     db 'To= xxC   Tj=xxC',0
+Line2:     db 'Sxxx,xx  Rxxx,xx',0
+Blank_3:   db '   '				,0
+Blank_2:   db '  '				,0
+S: 		   db 'S'				,0
+R:		   db 'R'				,0
 Reflow_n:  db 'STOP          ',0
 Reflow_0:  db 'RAMP SOAK   ',0
 Reflow_1:  db 'SOAK        ',0
 Reflow_2:  db 'RAMP PEAK   ',0
 Reflow_3:  db 'REFLOW      ',0
 Reflow_4:  db 'COOLIG      ',0
-Blank:     db '                 ',0
-Warning:   db ' To IS TOO LOW!  ',0
+Blank:     db '                ',0
+Warning:   db ' To IS TOO LOW! ',0
+Unlock_1:  db 'CONTROLER LOCKED',0
+Unlock_2:  db 'PASSWORD NEEDED ',0
 
 
 ;---------------------------------;
@@ -117,14 +121,14 @@ TIME_SOAK: ds 1
 TIME_REFLOW: ds 1
 TEMP_SOAK: ds 1
 TEMP_REFLOW: ds 1
-
+TEMP_TARGET: ds 1
 
 pwm: ds 1
 FSM1_state: ds 1
 sec: ds 1
 TIME_REALTIME: ds 1
 pwm_counter: ds 1
-
+TEMP_SIGMAERROR: ds 2
 ; Counter
 COUNTER_BUTTON_SELECT: ds 1
 COUNTER_TIME_PWM: ds 2
@@ -210,14 +214,14 @@ Timer2_ISR_Inc_COUTER1MS:
 	
 Timer2_RealTime_Inc_Done:
 	mov a,COUNTER_1MS+0
-	cjne a,#low(1000), Timer2_ISR_Done
+	cjne a,#low(998), Timer2_ISR_Done
 	mov a,COUNTER_1MS+1
-	cjne a,#high(1000), Timer2_ISR_Done
+	cjne a,#high(998), Timer2_ISR_Done
 
-	mov a,COUNTER_1MS+0
-	cjne a,#low(1000), Timer2_ISR_Done
-	mov a,COUNTER_1MS+1
-	cjne a,#high(1000), Timer2_ISR_Done
+;	mov a,COUNTER_1MS+0
+;	cjne a,#low(1000), Timer2_ISR_Done
+;	mov a,COUNTER_1MS+1
+;	cjne a,#high(1000), Timer2_ISR_Done
 	; 1 second is satisfy, clean counter
 	clr A
 	mov COUNTER_1MS+0,A
@@ -267,10 +271,10 @@ Init_All:
 
 ; Button Initial
 	mov COUNTER_BUTTON_SELECT,#0x00
-	mov TEMP_SOAK,#80
-	mov TIME_SOAK,#5
-	mov TEMP_REFLOW,#125
-	mov TIME_REFLOW,#5
+	mov TEMP_SOAK,#150
+	mov TIME_SOAK,#60
+	mov TEMP_REFLOW,#220
+	mov TIME_REFLOW,#45
 
 ; Initialize the pins used by the ADC (P1.1, P1.7) as input.
 	orl	P1M1, #0b00100010
@@ -578,9 +582,9 @@ Display_formated_BCD_Su:
 	ret
 
 Display_Tj:
-	Set_Cursor(1, 13)
-	Display_char(#'2')
-	Display_char(#'2')
+	Set_Cursor(1, 14)
+	mov a, #room_temp 
+	lcall SendToLCD_2digit
 
 Read_ADC:
 	clr ADCF
@@ -650,7 +654,7 @@ Display_formated_BCD_Ste:
 	Set_Cursor(1, 4)
 	lcall SendToLCD
 	ret
-
+	
 SendToSerial:
 	mov b, #100
 	div ab
@@ -668,7 +672,7 @@ SendToSerial:
 
 return:
     DB  '\r', '\n', 0
-
+    
 Send_to_computer:
 	push AR0
 	mov a, temp
@@ -713,7 +717,7 @@ Get_temp_adc:
 	lcall div32
 	load_y(41)
 	lcall div32
-	load_y(22)
+	load_y(room_temp)
 	lcall add32
 
 	mov temp,x
@@ -739,6 +743,108 @@ L1_1: djnz R0, L1_1 ; 4 cycles->4*60.24ns*104=25us
     pop AR1
     ret
 
+UpdatePWM_ZHONGZHUAN:
+	ljmp UpdatePWM_Stop
+UpdatePWM:
+	push AR1
+	push AR0
+
+	mov x+0, TEMP_TARGET
+	mov x+1, #0
+	mov x+2, #0
+	mov x+3, #0
+
+	mov y+0, temp
+	mov y+1, #0
+	mov y+2, #0
+	mov y+3, #0
+
+	; Check overheat
+	lcall x_lteq_y
+	jb mf, UpdatePWM_ZHONGZHUAN
+	; Traget temperature - Current temperature = delta T
+	mov x+0, TEMP_TARGET
+	mov x+1, #0
+	mov x+2, #0
+	mov x+3, #0
+
+	mov y+0, temp
+	mov y+1, #0
+	mov y+2, #0
+	mov y+3, #0
+	
+	lcall sub32
+	mov R0,x+0
+	mov R1,x+1
+	; Update sigma error = sigma error + delta T
+	mov y+0,TEMP_SIGMAERROR+1
+	mov y+1,TEMP_SIGMAERROR+0
+	mov y+2,#0
+	mov y+3,#0
+	lcall add32
+	mov TEMP_SIGMAERROR+1,x+0
+	mov TEMP_SIGMAERROR+0,x+1
+	; delta T * pwm period 
+	mov x+0,R0
+	mov x+1,R1
+	mov x+2,#0
+	mov x+3,#0
+	load_y(100)
+	lcall mul32
+	; delta T * pwm period / Target temperature = %pwm
+	mov y+0, TEMP_TARGET
+	mov y+1, #0
+	mov y+2, #0
+	mov y+3, #0
+	lcall div32
+	; Check, threshhold is set to 40% of the pwm period
+	load_y(20)
+	lcall x_gteq_y
+	jb mf, UpdatePWM_FullPower
+	; pwm = pwm% * kp + sigma error * ki
+	; kp
+	load_y(5)
+	lcall mul32
+	mov R0,x+0
+	mov R1,x+1
+	; ki
+	load_y(8)
+	mov x+0,TEMP_SIGMAERROR+1
+	mov x+1,TEMP_SIGMAERROR+0
+	mov x+2,#0
+	mov x+3,#0
+	lcall mul32
+	load_y(1000)
+	lcall div32
+	load_y(10)
+	lcall div32
+	mov y+0,R0
+	mov y+1,R1
+	mov y+2,#0
+	mov y+3,#0
+	lcall add32
+	mov pwm,x+0
+	sjmp UpdatePWM_Done
+UpdatePWM_Stop:
+	mov pwm,#0
+	mov TEMP_SIGMAERROR+0,#0
+	mov TEMP_SIGMAERROR+1,#0
+	sjmp UpdatePWM_Done
+UpdatePWM_FullPower:
+	; Set pwm to full pwm period
+	mov pwm,#100
+UpdatePWM_Done:
+	pop AR1
+	pop AR0
+	ret
+
+
+getchar:
+	jnb RI, getchar
+	clr RI
+	mov a, SBUF
+	ret
+
 ;---------------------------------;
 ;    main function starts here    ;
 ;---------------------------------;
@@ -749,17 +855,26 @@ main:
     
 	setb EA ; Enable Global interrupts    
     ; initial messages in LCD
+    
+    Set_Cursor(1, 1)
+    Send_Constant_String(#Unlock_1)
+    Set_Cursor(2, 1)
+    Send_Constant_String(#Unlock_2)
+    
+WaitPassword:
+	lcall getchar
+	cjne a, #'c', WaitPassword
+	lcall LCD_4BIT
+    
 	Set_Cursor(1, 1)
     Send_Constant_String(#Line1)
-
 	
 	lcall Display_Tj
 	Set_Cursor(2, 1)
     Send_Constant_String(#Line2)
     
 	mov FSM1_state, #0x00
-	mov pwm, #0	
-
+	
 	FSM1:
 	
 	FSM1_state0:
@@ -767,8 +882,15 @@ main:
 	lcall Display_Tj
 	lcall CHECK_BUTTON_SELECT_STATE
 	
+
+	Set_Cursor(1,8)
+	mov a,pwm
+	lcall SendToLCD
+	
+	
     mov a, FSM1_state
 	cjne a, #0x00, FSM1_state1
+	mov pwm,#0
 	lcall LCD_PB
 	lcall Display_PushButtons_LCD
 	
@@ -785,14 +907,15 @@ FSM1_state1:
     Display_char(#'s')
 	mov a, FSM1_state
 	cjne a, #1, ZHONGZHUAN
+	mov TEMP_TARGET,TEMP_SOAK;;;;;;
+		lcall UpdatePWM;;;;;;;;;;;;
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_0)
 	lcall LCD_PB
-	mov pwm, #100
+	;mov pwm, #100
 	mov a, TIME_REALTIME
 	clr c
-	cjne a, #60, next_check
-next_check:
+	subb a, #60
 	jnc check_abort 
 Continue_state1:
 	mov a, TEMP_SOAK
@@ -808,8 +931,9 @@ ZHONGZHUAN:
 	ljmp FSM1_state2
 	
 check_abort:
+	lcall Get_temp_adc
 	clr c
-	mov temp, a
+	mov a, temp
 	subb a, #50
 	jc ABORTION
 	ljmp Continue_state1
@@ -831,10 +955,11 @@ FSM1_state2:
 	cjne a, #2, FSM1_state3
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_1)
+    	lcall UpdatePWM;;;;;;;;;;;;
 	lcall LCD_PB
 next_2:
 
-    mov pwm, #20
+   ; mov pwm, #20
     mov a, TIME_SOAK
     clr c
     subb a, sec
@@ -848,11 +973,13 @@ FSM1_state3:
 	;lcall Display_Tj
 	mov a, FSM1_state
 	cjne a, #3, FSM1_state4
+	mov TEMP_TARGET,TEMP_REFLOW;;;;;;;;
+	lcall UpdatePWM;;;;;;;;;;;;
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_2)
 	lcall LCD_PB
 next_3:
-	mov pwm, #100
+;	mov pwm, #100
 	mov a,TEMP_REFLOW
 	clr c
 	subb a,temp
@@ -868,11 +995,12 @@ FSM1_state4:
 	;lcall Display_Tj
 	mov a, FSM1_state
 	cjne a, #4, FSM1_state5
+		lcall UpdatePWM;;;;;;;;;;;;
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_3)
 	lcall LCD_PB
 next_4:
-	mov pwm,#20
+;	mov pwm,#20
 	mov a,TIME_REFLOW
 	clr c
 	subb a,sec	
