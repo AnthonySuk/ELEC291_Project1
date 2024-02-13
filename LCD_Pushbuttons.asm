@@ -1,4 +1,4 @@
-;2024/2/11 15:49
+;2024/2/11 13:19
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -47,12 +47,12 @@ org 0x002B
 ;---------------------------------;
 ;              1234567890123456    <- This helps determine the location of the counter
 ;Line1:    db 'LCD PUSH BUTTONS' , 0
-Line1:     db 'To= xxC   Tj=xxC',0
-Line2:     db 'Sxxx,xx  Rxxx,xx',0
-Blank_3:   db '   '				,0
-Blank_2:   db '  '				,0
-S: 		   db 'S'				,0
-R:		   db 'R'				,0
+Line1:     db 'To= xxC  Tj=xxC ' ,0
+Line2:     db 'Sxxx,xx  Rxxx,xx' ,0
+Blank_3:   db '   '				 ,0
+Blank_2:   db '  '				 ,0
+S: 		   db 'S'				 ,0
+R:		   db 'R'				 ,0
 Reflow_n:  db 'STOP          ',0
 Reflow_0:  db 'RAMP SOAK   ',0
 Reflow_1:  db 'SOAK        ',0
@@ -130,6 +130,8 @@ TIME_REALTIME: ds 1
 pwm_counter: ds 1
 TEMP_SIGMAERROR: ds 2
 ; Counter
+kp: ds 1
+kp_threshold: ds 1
 COUNTER_BUTTON_SELECT: ds 1
 COUNTER_TIME_PWM: ds 2
 Tj_temp: ds 1
@@ -482,6 +484,8 @@ CHECK_BUTTON_START:
 	mov a, #0x01
 	mov FSM1_state, a
 	mov TIME_REALTIME, #0
+	mov TEMP_SIGMAERROR+0,#0
+	mov TEMP_SIGMAERROR+1,#0
 	pop acc
 	ret
 
@@ -675,8 +679,8 @@ return:
     
 Send_to_computer:
 	push AR0
-	mov a, temp
-	lcall SendToSerial
+	Send_BCD(bcd+1)
+    Send_BCD(bcd+0)
     mov DPTR, #return
     lcall SendString
     pop AR0
@@ -798,26 +802,34 @@ UpdatePWM:
 	mov y+3, #0
 	lcall div32
 	; Check, threshhold is set to 40% of the pwm period
-	load_y(20)
+	mov y+0,kp_threshold
+	mov y+1,#0
+	mov y+2,#0
+	mov y+3,#0
+	;load_y(30)
 	lcall x_gteq_y
 	jb mf, UpdatePWM_FullPower
 	; pwm = pwm% * kp + sigma error * ki
 	; kp
-	load_y(5)
+	mov y+0,kp
+	mov y+1,#0
+	mov y+2,#0
+	mov y+3,#0
+	;load_y(4)
 	lcall mul32
 	mov R0,x+0
 	mov R1,x+1
 	; ki
-	load_y(8)
+	load_y(3)
 	mov x+0,TEMP_SIGMAERROR+1
 	mov x+1,TEMP_SIGMAERROR+0
 	mov x+2,#0
 	mov x+3,#0
 	lcall mul32
-	load_y(1000)
+	load_y(6000)
 	lcall div32
-	load_y(10)
-	lcall div32
+	;load_y(10)
+	;lcall div32
 	mov y+0,R0
 	mov y+1,R1
 	mov y+2,#0
@@ -839,11 +851,10 @@ UpdatePWM_Done:
 	ret
 
 
-getchar:
-	jnb RI, getchar
-	clr RI
-	mov a, SBUF
-	ret
+
+
+
+
 
 ;---------------------------------;
 ;    main function starts here    ;
@@ -874,7 +885,8 @@ WaitPassword:
     Send_Constant_String(#Line2)
     
 	mov FSM1_state, #0x00
-	
+	mov pwm, #0	
+
 	FSM1:
 	
 	FSM1_state0:
@@ -907,6 +919,9 @@ FSM1_state1:
     Display_char(#'s')
 	mov a, FSM1_state
 	cjne a, #1, ZHONGZHUAN
+	
+	mov kp,#8
+	mov kp_threshold,#20
 	mov TEMP_TARGET,TEMP_SOAK;;;;;;
 		lcall UpdatePWM;;;;;;;;;;;;
 	Set_Cursor(2, 1)
@@ -955,7 +970,13 @@ FSM1_state2:
 	cjne a, #2, FSM1_state3
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_1)
-    	lcall UpdatePWM;;;;;;;;;;;;
+    mov a,sec;;;
+    subb a,#5;;;;
+    jc cons;;;;
+    mov pwm,#20;;;
+ 	sjmp next_2;;;;
+ cons:
+    lcall UpdatePWM
 	lcall LCD_PB
 next_2:
 
@@ -973,6 +994,8 @@ FSM1_state3:
 	;lcall Display_Tj
 	mov a, FSM1_state
 	cjne a, #3, FSM1_state4
+	mov kp,#9
+	mov kp_threshold,#0
 	mov TEMP_TARGET,TEMP_REFLOW;;;;;;;;
 	lcall UpdatePWM;;;;;;;;;;;;
 	Set_Cursor(2, 1)
@@ -995,7 +1018,18 @@ FSM1_state4:
 	;lcall Display_Tj
 	mov a, FSM1_state
 	cjne a, #4, FSM1_state5
-		lcall UpdatePWM;;;;;;;;;;;;
+		
+	 mov a,sec;;;
+    subb a,#5;;;;
+    jc cons_1;;;;
+    mov pwm,#25;;;
+ 	sjmp next_33;;;;
+ cons_1:
+    lcall UpdatePWM
+	lcall LCD_PB
+next_33:	
+		
+
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_3)
 	lcall LCD_PB
