@@ -1,4 +1,4 @@
-;2024/2/12 20:16
+;2024/2/11 19:37
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -30,7 +30,8 @@ TIMER0_RELOAD_1MS EQU (0x10000-(CLK/1000))
 TIMER2_RATE   EQU 1000     ; 2048Hz squarewave (peak amplitude of CEM-1203 speaker)
 TIMER2_RELOAD EQU ((65536-(CLK/TIMER2_RATE)))
 
-room_temp EQU 22
+TIMER3_RATE   EQU 4096     ; 2048Hz squarewave (peak amplitude of CEM-1203 speaker)
+TIMER3_RELOAD EQU ((65536-(CLK/TIMER3_RATE)))
 
 
 ;Tj_temp equ #0x25
@@ -42,12 +43,15 @@ ORG 0x0000
 org 0x002B
 	ljmp Timer2_ISR
 
+org 0x0083
+	ljmp Timer3_ISR;//
+
 ;---------------------------------;
 ;      String Declarations		  ;
 ;---------------------------------;
 ;              1234567890123456    <- This helps determine the location of the counter
 ;Line1:    db 'LCD PUSH BUTTONS' , 0
-Line1:     db 'To= xxC  Tj=xxC ' ,0
+Line1:     db 'To= xxC   Tj=xxC' ,0
 Line2:     db 'Sxxx,xx  Rxxx,xx' ,0
 Blank_3:   db '   '				 ,0
 Blank_2:   db '  '				 ,0
@@ -59,10 +63,8 @@ Reflow_1:  db 'SOAK        ',0
 Reflow_2:  db 'RAMP PEAK   ',0
 Reflow_3:  db 'REFLOW      ',0
 Reflow_4:  db 'COOLIG      ',0
-Blank:     db '                ',0
-Warning:   db ' To IS TOO LOW! ',0
-Unlock_1:  db 'CONTROLER LOCKED',0
-Unlock_2:  db 'PASSWORD NEEDED ',0
+Blank:     db '                 ',0
+Warning:   db ' To IS TOO LOW!  ',0
 
 
 ;---------------------------------;
@@ -103,7 +105,7 @@ PB_SELECT  : dbit 1
 PB_INCREASE: dbit 1
 PB_DECREASE: dbit 1
 mf: dbit 1
-checking_sound: dbit 1
+spk_flag: dbit 1;//
 
 ;---------------------------------;
 ;          Data Segment			  ;
@@ -136,6 +138,7 @@ COUNTER_BUTTON_SELECT: ds 1
 COUNTER_TIME_PWM: ds 2
 Tj_temp: ds 1
 COUNTER_1MS: ds 2
+COUNTER_SPK: ds 2;//
 
 
 ;---------------------------------;
@@ -150,6 +153,24 @@ $LIST
 ;          Code Segment			  ;
 ;---------------------------------;
 CSEG
+
+
+;---------------------------------;
+; Timer3 initialization
+Timer3_Init:
+	anl T3CON,#0b11110111
+	mov T3CON, #0 ; Stop timer/counter.  Autoreload mode.
+	mov RH3, #high(TIMER3_RELOAD)
+	mov RL3, #low(TIMER3_RELOAD)
+	mov EIE1, #0b00000010 ; Enable timer 3 interrupt ET3=1
+	; Enable the timer and interrupts
+	ret
+
+;---------------------------------;
+
+
+
+
 ;Timer2 initialization
 Timer2_Init:
 	mov T2CON, #0 ; Stop timer/counter.  Autoreload mode.
@@ -165,6 +186,11 @@ Timer2_Init:
 	mov COUNTER_1MS+1, a
 	mov COUNTER_TIME_PWM+0, A
 	mov COUNTER_TIME_PWM+1, A
+
+	mov COUNTER_SPK+0, A;//
+	mov COUNTER_SPK+1, A;//
+
+
 	; Enable the timer and interrupts
 	orl EIE, #0x80 ; Enable timer 2 interrupt ET2=1
     setb TR2  ; Enable timer 2
@@ -216,15 +242,10 @@ Timer2_ISR_Inc_COUTER1MS:
 	
 Timer2_RealTime_Inc_Done:
 	mov a,COUNTER_1MS+0
-	cjne a,#low(998), Timer2_ISR_Done
+	cjne a,#low(998), Timer2_ISR_Inc_COUNTER_SPK;//
 	mov a,COUNTER_1MS+1
-	cjne a,#high(998), Timer2_ISR_Done
+	cjne a,#high(998), Timer2_ISR_Inc_COUNTER_SPK;//
 
-;	mov a,COUNTER_1MS+0
-;	cjne a,#low(1000), Timer2_ISR_Done
-;	mov a,COUNTER_1MS+1
-;	cjne a,#high(1000), Timer2_ISR_Done
-	; 1 second is satisfy, clean counter
 	clr A
 	mov COUNTER_1MS+0,A
 	mov COUNTER_1MS+1,A
@@ -233,6 +254,26 @@ Timer2_RealTime_Inc_Done:
 	add a,#1
 	mov TIME_REALTIME,a
 	inc sec ; It is super easy to keep a seconds count here
+
+
+	;//
+	Timer2_ISR_Inc_COUNTER_SPK:
+	inc COUNTER_SPK+0
+	mov a, COUNTER_SPK+0
+	jnz Timer2_SPK_Inc_Done
+	inc COUNTER_SPK+1
+
+	Timer2_SPK_Inc_Done:
+	mov a, COUNTER_SPK+0
+	cjne a, #low(1000), Timer2_ISR_Done
+	mov a, COUNTER_SPK+1
+	cjne a, #high(1000), Timer2_ISR_Done
+	; 500ms is satisfy, clean counter
+	clr A
+	clr spk_flag
+	mov COUNTER_SPK+0,A
+	mov COUNTER_SPK+1,A
+	;//
 
 Timer2_ISR_Done:
 	pop psw
@@ -271,6 +312,15 @@ Init_All:
 	lcall Timer2_Init 
 ;------------------------------------------;
 
+
+
+;Timer3 initialization
+;------------------------------------------;
+;Timer 3(for now speaker)
+	lcall Timer3_Init;//
+
+
+
 ; Button Initial
 	mov COUNTER_BUTTON_SELECT,#0x00
 	mov TEMP_SOAK,#150
@@ -291,6 +341,34 @@ Init_All:
 	orl ADCCON1, #0x01 ; Enable ADC
 	
 	ret
+
+
+;---------------------------------;
+; Timer3 ISR      //                ;
+;---------------------------------;
+Timer3_ISR:
+	mov T3CON, #0 ; Stop timer/counter.  Autoreload mode.
+	jnb spk_flag, Timer3_ISR_Done ; If the speaker is not enabled, toggle the level of spk
+	cpl SOUND_OUT
+
+Timer3_ISR_Done:
+	orl T3CON, #0b00001000 ; Enable timer 3
+	reti
+
+; 每次状态机状态改变时，调用该函数//
+Init_SPK:
+	push acc
+
+	setb spk_flag
+	orl T3CON, #0b00001000 ; Enable timer 3
+	clr a
+	mov COUNTER_SPK+0, a
+	mov COUNTER_SPK+1, a
+
+	pop acc
+	ret
+
+
 
 ;delay configuration
 wait_1ms:
@@ -479,6 +557,7 @@ LCD_PB:
 
 ;FSM start
 CHECK_BUTTON_START:
+
 	push acc
 	;setb TR2
 	mov a, #0x01
@@ -486,6 +565,7 @@ CHECK_BUTTON_START:
 	mov TIME_REALTIME, #0
 	mov TEMP_SIGMAERROR+0,#0
 	mov TEMP_SIGMAERROR+1,#0
+	lcall Init_SPK
 	pop acc
 	ret
 
@@ -587,8 +667,8 @@ Display_formated_BCD_Su:
 
 Display_Tj:
 	Set_Cursor(1, 14)
-	mov a, #room_temp 
-	lcall SendToLCD_2digit
+	Display_char(#'2')
+	Display_char(#'2')
 
 Read_ADC:
 	clr ADCF
@@ -658,25 +738,10 @@ Display_formated_BCD_Ste:
 	Set_Cursor(1, 4)
 	lcall SendToLCD
 	ret
-	
-SendToSerial:
-	mov b, #100
-	div ab
-	orl a, #0x30 ; Convert hundreds to ASCII
-	lcall putchar ; Send to Serial
-	mov a, b ; Remainder is in register b
-	mov b, #10
-	div ab
-	orl a, #0x30 ; Convert tens to ASCII
-	lcall putchar ; Send to Serial
-	mov a, b
-	orl a, #0x30 ; Convert units to ASCII
-	lcall putchar ; Send to Serial
-	ret
 
 return:
     DB  '\r', '\n', 0
-    
+
 Send_to_computer:
 	push AR0
 	Send_BCD(bcd+1)
@@ -721,7 +786,7 @@ Get_temp_adc:
 	lcall div32
 	load_y(41)
 	lcall div32
-	load_y(room_temp)
+	load_y(22)
 	lcall add32
 
 	mov temp,x
@@ -850,6 +915,12 @@ UpdatePWM_Done:
 	pop AR0
 	ret
 
+
+
+
+
+
+
 ;---------------------------------;
 ;    main function starts here    ;
 ;---------------------------------;
@@ -860,27 +931,17 @@ main:
     
 	setb EA ; Enable Global interrupts    
     ; initial messages in LCD
-    
-    Set_Cursor(1, 1)
-    Send_Constant_String(#Unlock_1)
-    Set_Cursor(2, 1)
-    Send_Constant_String(#Unlock_2)
-    
-WaitPassword:
-	lcall getchar
-	cjne a, #'c', WaitPassword
-	lcall LCD_4BIT
-    
 	Set_Cursor(1, 1)
     Send_Constant_String(#Line1)
+
 	
 	lcall Display_Tj
 	Set_Cursor(2, 1)
     Send_Constant_String(#Line2)
     
 	mov FSM1_state, #0x00
-	mov pwm, #0	
 
+	
 	FSM1:
 	
 	FSM1_state0:
@@ -932,6 +993,7 @@ Continue_state1:
 	subb a, temp
 	jnc FSM1_state1_done
 	mov FSM1_state, #2
+	lcall Init_SPK;//
 	mov sec, #0
 FSM1_state1_done:
 	ljmp FSM1
@@ -980,6 +1042,8 @@ next_2:
     subb a, sec
     jnc FSM1_state2_done
     mov FSM1_state, #3
+	lcall Init_SPK;// 
+	mov sec, #0
 FSM1_state2_done:
     ljmp FSM1
 ;;wait until temp reflow
@@ -1002,6 +1066,7 @@ next_3:
 	subb a,temp
 	jnc FSM1_state3_done
 	mov FSM1_state,#4
+	lcall Init_SPK;//
 	mov sec,#0
 	
 FSM1_state3_done:
@@ -1034,6 +1099,7 @@ next_4:
 	subb a,sec	
 	jnc FSM1_state4_done
 	mov FSM1_state,#5
+	lcall Init_SPK;//
 	mov sec,#0x00
 FSM1_state4_done:
 	ljmp FSM1
@@ -1051,6 +1117,7 @@ FSM1_state5:
 	subb a, temp
 	jc FSM1_state5_done
 	mov FSM1_state,#0
+	lcall Init_SPK;//
 	mov sec,#0x00
 	Set_Cursor(2, 1)
     Send_Constant_String(#Blank)
