@@ -1,4 +1,4 @@
-;2024/2/12 16:42
+;2024/2/11 19:37
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -45,7 +45,7 @@ org 0x002B
 ;---------------------------------;
 ;              1234567890123456    <- This helps determine the location of the counter
 ;Line1:    db 'LCD PUSH BUTTONS' , 0
-Line1:     db 'To= xxC  Tj=xxC ' ,0
+Line1:     db 'To= xxC   Tj=xxC' ,0
 Line2:     db 'Sxxx,xx  Rxxx,xx' ,0
 Blank_3:   db '   '				 ,0
 Blank_2:   db '  '				 ,0
@@ -118,15 +118,16 @@ TIME_REFLOW: ds 1
 TEMP_SOAK: ds 1
 TEMP_REFLOW: ds 1
 TEMP_TARGET: ds 1
-TEMP_SIGMAERROR: ds 2
 
 pwm: ds 1
 FSM1_state: ds 1
 sec: ds 1
 TIME_REALTIME: ds 1
 pwm_counter: ds 1
-
+TEMP_SIGMAERROR: ds 2
 ; Counter
+kp: ds 1
+kp_threshold: ds 1
 COUNTER_BUTTON_SELECT: ds 1
 COUNTER_TIME_PWM: ds 2
 Tj_temp: ds 1
@@ -269,9 +270,9 @@ Init_All:
 ; Button Initial
 	mov COUNTER_BUTTON_SELECT,#0x00
 	mov TEMP_SOAK,#150
-	mov TIME_SOAK,#40
-	mov TEMP_REFLOW,#240
-	mov TIME_REFLOW,#20
+	mov TIME_SOAK,#60
+	mov TEMP_REFLOW,#220
+	mov TIME_REFLOW,#45
 
 ; Initialize the pins used by the ADC (P1.1, P1.7) as input.
 	orl	P1M1, #0b00100010
@@ -479,6 +480,8 @@ CHECK_BUTTON_START:
 	mov a, #0x01
 	mov FSM1_state, a
 	mov TIME_REALTIME, #0
+	mov TEMP_SIGMAERROR+0,#0
+	mov TEMP_SIGMAERROR+1,#0
 	pop acc
 	ret
 
@@ -579,7 +582,7 @@ Display_formated_BCD_Su:
 	ret
 
 Display_Tj:
-	Set_Cursor(1, 13)
+	Set_Cursor(1, 14)
 	Display_char(#'2')
 	Display_char(#'2')
 
@@ -652,28 +655,13 @@ Display_formated_BCD_Ste:
 	lcall SendToLCD
 	ret
 
-SendToSerial:
-	mov b, #100
-	div ab
-	orl a, #0x30 ; Convert hundreds to ASCII
-	lcall putchar ; Send to Serial
-	mov a, b ; Remainder is in register b
-	mov b, #10
-	div ab
-	orl a, #0x30 ; Convert tens to ASCII
-	lcall putchar ; Send to Serial
-	mov a, b
-	orl a, #0x30 ; Convert units to ASCII
-	lcall putchar ; Send to Serial
-	ret
-
 return:
     DB  '\r', '\n', 0
 
 Send_to_computer:
 	push AR0
-	mov a, temp
-	lcall SendToSerial
+	Send_BCD(bcd+1)
+    Send_BCD(bcd+0)
     mov DPTR, #return
     lcall SendString
     pop AR0
@@ -740,7 +728,12 @@ L1_1: djnz R0, L1_1 ; 4 cycles->4*60.24ns*104=25us
     pop AR1
     ret
 
+UpdatePWM_ZHONGZHUAN:
+	ljmp UpdatePWM_Stop
 UpdatePWM:
+	push AR1
+	push AR0
+
 	mov x+0, TEMP_TARGET
 	mov x+1, #0
 	mov x+2, #0
@@ -753,20 +746,34 @@ UpdatePWM:
 
 	; Check overheat
 	lcall x_lteq_y
-	jb mf, UpdatePWM_Stop
+	jb mf, UpdatePWM_ZHONGZHUAN
 	; Traget temperature - Current temperature = delta T
+	mov x+0, TEMP_TARGET
+	mov x+1, #0
+	mov x+2, #0
+	mov x+3, #0
+
+	mov y+0, temp
+	mov y+1, #0
+	mov y+2, #0
+	mov y+3, #0
+	
 	lcall sub32
 	mov R0,x+0
 	mov R1,x+1
 	; Update sigma error = sigma error + delta T
-	mov y+0,TEMP_SIGMAERROR+0
-	mov y+1,TEMP_SIGMAERROR+1
+	mov y+0,TEMP_SIGMAERROR+1
+	mov y+1,TEMP_SIGMAERROR+0
 	mov y+2,#0
 	mov y+3,#0
 	lcall add32
-	mov TEMP_SIGMAERROR+0,x+0
-	mov TEMP_SIGMAERROR+1,x+1
+	mov TEMP_SIGMAERROR+1,x+0
+	mov TEMP_SIGMAERROR+0,x+1
 	; delta T * pwm period 
+	mov x+0,R0
+	mov x+1,R1
+	mov x+2,#0
+	mov x+3,#0
 	load_y(100)
 	lcall mul32
 	; delta T * pwm period / Target temperature = %pwm
@@ -775,25 +782,35 @@ UpdatePWM:
 	mov y+2, #0
 	mov y+3, #0
 	lcall div32
-	; Check, threshhold is set to 50% of the pwm period
-	load_y(40)
+	; Check, threshhold is set to 40% of the pwm period
+	mov y+0,kp_threshold
+	mov y+1,#0
+	mov y+2,#0
+	mov y+3,#0
+	;load_y(30)
 	lcall x_gteq_y
 	jb mf, UpdatePWM_FullPower
 	; pwm = pwm% * kp + sigma error * ki
 	; kp
-	load_y(2)
+	mov y+0,kp
+	mov y+1,#0
+	mov y+2,#0
+	mov y+3,#0
+	;load_y(4)
 	lcall mul32
 	mov R0,x+0
 	mov R1,x+1
 	; ki
-	load_y(5)
-	mov x+0,TEMP_SIGMAERROR+0
-	mov x+1,TEMP_SIGMAERROR+1
+	load_y(3)
+	mov x+0,TEMP_SIGMAERROR+1
+	mov x+1,TEMP_SIGMAERROR+0
 	mov x+2,#0
 	mov x+3,#0
 	lcall mul32
-	load_y(1000)
+	load_y(6000)
 	lcall div32
+	;load_y(10)
+	;lcall div32
 	mov y+0,R0
 	mov y+1,R1
 	mov y+2,#0
@@ -803,12 +820,22 @@ UpdatePWM:
 	sjmp UpdatePWM_Done
 UpdatePWM_Stop:
 	mov pwm,#0
+	mov TEMP_SIGMAERROR+0,#0
+	mov TEMP_SIGMAERROR+1,#0
 	sjmp UpdatePWM_Done
 UpdatePWM_FullPower:
 	; Set pwm to full pwm period
 	mov pwm,#100
 UpdatePWM_Done:
+	pop AR1
+	pop AR0
 	ret
+
+
+
+
+
+
 
 ;---------------------------------;
 ;    main function starts here    ;
@@ -839,7 +866,7 @@ main:
 	lcall CHECK_BUTTON_SELECT_STATE
 	
 
-	Set_Cursor(1,7)
+	Set_Cursor(1,8)
 	mov a,pwm
 	lcall SendToLCD
 	
@@ -863,6 +890,9 @@ FSM1_state1:
     Display_char(#'s')
 	mov a, FSM1_state
 	cjne a, #1, ZHONGZHUAN
+	
+	mov kp,#8
+	mov kp_threshold,#20
 	mov TEMP_TARGET,TEMP_SOAK;;;;;;
 		lcall UpdatePWM;;;;;;;;;;;;
 	Set_Cursor(2, 1)
@@ -887,8 +917,9 @@ ZHONGZHUAN:
 	ljmp FSM1_state2
 	
 check_abort:
+	lcall Get_temp_adc
 	clr c
-	mov temp, a
+	mov a, temp
 	subb a, #50
 	jc ABORTION
 	ljmp Continue_state1
@@ -910,7 +941,13 @@ FSM1_state2:
 	cjne a, #2, FSM1_state3
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_1)
-    	lcall UpdatePWM;;;;;;;;;;;;
+    mov a,sec;;;
+    subb a,#5;;;;
+    jc cons;;;;
+    mov pwm,#20;;;
+ 	sjmp next_2;;;;
+ cons:
+    lcall UpdatePWM
 	lcall LCD_PB
 next_2:
 
@@ -928,8 +965,10 @@ FSM1_state3:
 	;lcall Display_Tj
 	mov a, FSM1_state
 	cjne a, #3, FSM1_state4
+	mov kp,#9
+	mov kp_threshold,#0
 	mov TEMP_TARGET,TEMP_REFLOW;;;;;;;;
-		lcall UpdatePWM;;;;;;;;;;;;
+	lcall UpdatePWM;;;;;;;;;;;;
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_2)
 	lcall LCD_PB
@@ -950,7 +989,18 @@ FSM1_state4:
 	;lcall Display_Tj
 	mov a, FSM1_state
 	cjne a, #4, FSM1_state5
-		lcall UpdatePWM;;;;;;;;;;;;
+		
+	 mov a,sec;;;
+    subb a,#5;;;;
+    jc cons_1;;;;
+    mov pwm,#25;;;
+ 	sjmp next_33;;;;
+ cons_1:
+    lcall UpdatePWM
+	lcall LCD_PB
+next_33:	
+		
+
 	Set_Cursor(2, 1)
     Send_Constant_String(#Reflow_3)
 	lcall LCD_PB
