@@ -1,4 +1,4 @@
-;2024/2/12 15:49
+;2024/2/12 16:42
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -118,6 +118,7 @@ TIME_REFLOW: ds 1
 TEMP_SOAK: ds 1
 TEMP_REFLOW: ds 1
 TEMP_TARGET: ds 1
+TEMP_SIGMAERROR: ds 2
 
 pwm: ds 1
 FSM1_state: ds 1
@@ -755,6 +756,16 @@ UpdatePWM:
 	jb mf, UpdatePWM_Stop
 	; Traget temperature - Current temperature = delta T
 	lcall sub32
+	mov R0,x+0
+	mov R1,x+1
+	; Update sigma error = sigma error + delta T
+	mov y+0,TEMP_SIGMAERROR+0
+	mov y+1,TEMP_SIGMAERROR+1
+	mov y+2,#0
+	mov y+3,#0
+	lcall add32
+	mov TEMP_SIGMAERROR+0,x+0
+	mov TEMP_SIGMAERROR+1,x+1
 	; delta T * pwm period 
 	load_y(100)
 	lcall mul32
@@ -768,9 +779,26 @@ UpdatePWM:
 	load_y(40)
 	lcall x_gteq_y
 	jb mf, UpdatePWM_FullPower
-	; pwm = pwm% * kp
+	; pwm = pwm% * kp + sigma error * ki
+	; kp
 	load_y(2)
 	lcall mul32
+	mov R0,x+0
+	mov R1,x+1
+	; ki
+	load_y(5)
+	mov x+0,TEMP_SIGMAERROR+0
+	mov x+1,TEMP_SIGMAERROR+1
+	mov x+2,#0
+	mov x+3,#0
+	lcall mul32
+	load_y(1000)
+	lcall div32
+	mov y+0,R0
+	mov y+1,R1
+	mov y+2,#0
+	mov y+3,#0
+	lcall add32
 	mov pwm,x+0
 	sjmp UpdatePWM_Done
 UpdatePWM_Stop:
@@ -781,13 +809,6 @@ UpdatePWM_FullPower:
 	mov pwm,#100
 UpdatePWM_Done:
 	ret
-
-
-
-
-
-
-
 
 ;---------------------------------;
 ;    main function starts here    ;
