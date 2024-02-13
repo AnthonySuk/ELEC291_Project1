@@ -1,4 +1,4 @@
-;2024/2/11 13:19
+;2024/2/12 20:16
 ; N76E003 LCD_Pushbuttons.asm: Reads muxed push buttons using one input
 
 $NOLIST
@@ -849,12 +849,6 @@ UpdatePWM_Done:
 	pop AR1
 	pop AR0
 	ret
-
-
-
-
-
-
 
 ;---------------------------------;
 ;    main function starts here    ;
