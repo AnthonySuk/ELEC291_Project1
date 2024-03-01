@@ -1,20 +1,20 @@
 # ELEC291_Project1
 Reflow oven control
-## 任务分组
-### 输入输出控制
--  获取烤箱实时温度
--  通过定时器中断实现烤箱温度采样时间
--  通过定时器控制实现烤箱开启一段时间或关闭一段时间
--  LCD显示
-    -  第一行：T0（烤箱温度） Tj（电路板相对温度）
-    -  第二行：S（温度，时间） R（温度，时间）
--  按钮
+## Subteam mission
+### Input output control
+-  Get oven temperature
+-  Using timer interrupt to periodically get the temperature data
+-  PWM control
+-  LCD display
+    -  Row 1：T0（Oven temperature） Tj（Room temperature）
+    -  Row 2：S（Soak temperature，Soak time） R（Reflow temperature，Reflow time）
+-  Button
     -  Start Button
     -  Stop Button
-    -  切换选择（s的温度，s的时间，r的温度，r的时间）
-    -  增加数值
-    -  减少数值
--  相关计算
-    -  当前温度 Tc 与 目标温度 T 的差 ΔT = T - Tc
-    -  当前温度与目标温度的百分比 ΔT% = ΔT / T
-    -  烤箱的开启时间 t = ΔT% * 控制周期 * kp
+    -  Switch select（soak temperature，soak time，reflow temperature，reflow time）
+    -  Increase number
+    -  Decrease number
+-  Relative calculation
+    -  Current temperature Tc and target temperature T, ΔT = T - Tc
+    -  Relative percentage of current error and target temperature ΔT% = ΔT / T
+    -  Oven output time t = ΔT% * PWM period * kp
