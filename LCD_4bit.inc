@@ -1,8 +1,5 @@
-cseg
-
 ; When using a 16.6MHz oscillator in the N76E003
 ; one cycle takes 1.0/16.6MHz = 60.24 ns
-
 ;---------------------------------;
 ; Wait 40 microseconds            ;
 ;---------------------------------;
@@ -201,4 +198,36 @@ Display_char mac
 	pop acc
 endmac
 
-	
+;---------------------------------;
+; Send a BCD number to PuTTY      ;
+;---------------------------------;
+Send_BCD mac
+	push ar0
+	mov r0, %0
+	lcall ?Send_BCD
+	pop ar0
+endmac
+
+?Send_BCD:
+	push acc
+	; Write most significant digit
+	mov a, r0
+	swap a
+	anl a, #0fh
+	orl a, #30h
+	lcall putchar
+	; write least significant digit
+	mov a, r0
+	anl a, #0fh
+	orl a, #30h
+	lcall putchar
+	pop acc
+	ret
+
+; Send a character using the serial port
+putchar:
+    jnb TI, putchar
+    clr TI
+    mov SBUF, a
+    ret
+END
